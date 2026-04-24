@@ -4,7 +4,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    # Expo-managed mobile dependencies should be updated through an Expo SDK
+    # upgrade/native QA workflow, not standalone Dependabot version drift.
+    open-pull-requests-limit: 0
     groups:
       mobile-minor-patch:
         patterns:
