@@ -3,15 +3,7 @@ import { Redirect } from 'expo-router';
 import { useSession } from '@/src/context/SessionProvider';
 
 export default function IndexScreen() {
-  const { isAuthenticated, session } = useSession();
+  const { authEntryRoute, homeRoute, isAuthenticated } = useSession();
 
-  if (isAuthenticated && session?.role === 'owner') {
-    return <Redirect href="/(owner)/home" />;
-  }
-
-  if (isAuthenticated && session?.role === 'tenant') {
-    return <Redirect href="/(tenant)/home" />;
-  }
-
-  return <Redirect href="/auth/login" />;
+  return <Redirect href={(isAuthenticated ? homeRoute : authEntryRoute) as never} />;
 }

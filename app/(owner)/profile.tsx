@@ -1,26 +1,38 @@
-import { Alert, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AvatarBadge } from '@/src/components/AvatarBadge';
+import { BuildInfoCard } from '@/src/components/BuildInfoCard';
 import { InfoRow } from '@/src/components/InfoRow';
 import { PrimaryButton } from '@/src/components/PrimaryButton';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
 import { SummaryCard } from '@/src/components/SummaryCard';
-import { isDebugToolsEnabled } from '@/src/config/env';
 import { useAppContext } from '@/src/context/AppProvider';
 import { useSession } from '@/src/context/SessionProvider';
 import { colors } from '@/src/theme/colors';
 import { spacing } from '@/src/theme/spacing';
 import { typography } from '@/src/theme/typography';
+import { getAuthProviderLabel } from '@/src/utils/auth';
 import { formatCurrency } from '@/src/utils/currency';
+import { getInitialsFromName } from '@/src/utils/session';
 
 export default function OwnerProfileScreen() {
-  const { ownerPayments, ownerUser, properties, tenantContacts } = useAppContext();
-  const { signOut } = useSession();
+  const { ownerDashboardSummary, ownerPayments, ownerUser, properties, tenantContacts } = useAppContext();
+  const { isFirebaseEnabled, session, signOut } = useSession();
+  const accountName = session?.profile?.displayName ?? ownerUser.fullName;
+  const accountEmail = session?.profile?.email ?? ownerUser.email;
+  const accountPhone = session?.profile?.phoneNumber ?? ownerUser.phone;
+  const accountInitials = getInitialsFromName(accountName, ownerUser.initials);
+  const providerLabel = getAuthProviderLabel(session?.authProvider, session?.authProviders);
+  const canLinkPassword =
+    isFirebaseEnabled &&
+    session?.authProvider === 'google' &&
+    !(session.authProviders?.includes('password') ?? false);
 
   const totalCollected = ownerPayments
     .filter((payment) => payment.status === 'paid')
-    .reduce((total, payment) => total + payment.amount, 0);
+    .reduce((total, payment) => total + (payment.ownerNetAmount ?? payment.amount), 0);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -28,15 +40,20 @@ export default function OwnerProfileScreen() {
         <ScreenHeader subtitle="Votre compte propriétaire" title="Profil" />
 
         <View style={styles.profileCard}>
-          <AvatarBadge initials={ownerUser.initials} size={80} />
+          <AvatarBadge
+            imageUrl={session?.profile?.photoUrl}
+            initials={accountInitials}
+            label={accountName}
+            size={80}
+          />
           <View style={styles.profileCopy}>
-            <Text style={styles.name}>{ownerUser.fullName}</Text>
-            <Text style={styles.role}>Propriétaire</Text>
+            <Text style={styles.name}>{accountName}</Text>
+            <Text style={styles.role}>{`Propriétaire • ${providerLabel}`}</Text>
           </View>
         </View>
 
         <View style={styles.statsGrid}>
-          <SummaryCard compact title="Biens" value={String(properties.length)} />
+          <SummaryCard compact title="Biens" value={String(ownerDashboardSummary.propertiesCount)} />
           <SummaryCard compact title="Locataires" value={String(tenantContacts.length)} />
           <SummaryCard
             compact
@@ -46,28 +63,42 @@ export default function OwnerProfileScreen() {
         </View>
 
         <View style={styles.section}>
-          <InfoRow label="Téléphone" value={ownerUser.phone} />
-          <InfoRow label="Email" value={ownerUser.email} />
-          <InfoRow
-            label="Paramètres du compte"
-            onPress={() =>
-              Alert.alert(
-                'Paramètres',
-                'Les réglages avancés du compte seront ajoutés après la phase MVP.',
-              )
-            }
-            value="Notifications, préférences, sécurité"
-          />
-          {isDebugToolsEnabled ? (
+          <InfoRow label="Téléphone" value={accountPhone} />
+          <InfoRow label="Compte connecté" value={accountEmail} />
+          <InfoRow label="Connexion" value={providerLabel} />
+          {canLinkPassword ? (
             <InfoRow
-              label="QA & debug"
-              onPress={() => router.push('/dev-tools')}
-              value="Validation native et données locales"
+              label="Ajouter un mot de passe"
+              onPress={() => router.push('/link-password')}
+              value="Lier un accès e-mail à ce compte Google"
             />
           ) : null}
+          <InfoRow
+            label="Coordonnées de récupération"
+            onPress={() => router.push('/profile-contact')}
+            value="Téléphone et préférence de rappel"
+          />
+          <InfoRow
+            label="Conditions d’utilisation"
+            onPress={() => router.push('/terms')}
+            value="Responsabilités et limites de la plateforme"
+          />
+          <InfoRow
+            label="Aide & support"
+            onPress={() => router.push('/support')}
+            value="Incident, litige, récupération assistée"
+          />
+          <InfoRow
+            label="Responsabilité & aide"
+            onPress={() => router.push('/help')}
+            value="Conduites à tenir et canal agence"
+          />
         </View>
 
+        <BuildInfoCard onOpenPreviewTools={() => router.push('/dev-tools')} />
+
         <PrimaryButton
+          accessibilityHint="Supprime la session locale puis revient à l'écran de connexion"
           label="Se déconnecter"
           onPress={async () => {
             await signOut();

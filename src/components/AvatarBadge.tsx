@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Image, StyleSheet, Text, View } from 'react-native';
 
 import { colors } from '@/src/theme/colors';
 import { radius } from '@/src/theme/radius';
@@ -6,13 +7,23 @@ import { typography } from '@/src/theme/typography';
 
 interface AvatarBadgeProps {
   initials: string;
+  imageUrl?: string | null;
+  label?: string;
   size?: number;
 }
 
-export function AvatarBadge({ initials, size = 72 }: AvatarBadgeProps) {
+export function AvatarBadge({
+  initials,
+  imageUrl,
+  label,
+  size = 72,
+}: AvatarBadgeProps) {
+  const [hasImageError, setHasImageError] = useState(false);
+  const shouldShowImage = !!imageUrl && !hasImageError;
+
   return (
     <View
-      accessibilityLabel={`Avatar ${initials}`}
+      accessibilityLabel={label ? `Avatar ${label}` : `Avatar ${initials}`}
       style={[
         styles.container,
         {
@@ -21,7 +32,20 @@ export function AvatarBadge({ initials, size = 72 }: AvatarBadgeProps) {
           borderRadius: radius.pill,
         },
       ]}>
-      <Text style={[styles.text, { fontSize: size * 0.32 }]}>{initials}</Text>
+      {shouldShowImage ? (
+        <Image
+          onError={() => setHasImageError(true)}
+          source={{ uri: imageUrl }}
+          style={[
+            styles.image,
+            {
+              borderRadius: radius.pill,
+            },
+          ]}
+        />
+      ) : (
+        <Text style={[styles.text, { fontSize: size * 0.32 }]}>{initials}</Text>
+      )}
     </View>
   );
 }
@@ -38,5 +62,8 @@ const styles = StyleSheet.create({
     color: colors.primaryDark,
     ...typography.subheading,
   },
+  image: {
+    height: '100%',
+    width: '100%',
+  },
 });
-

@@ -5,20 +5,51 @@
   },
   "build": {
     "development": {
-      "developmentClient": true,
-      "distribution": "internal"
-    },
-    "development-simulator": {
+      "channel": "development",
       "developmentClient": true,
       "distribution": "internal",
+      "env": {
+        "APP_VARIANT": "development",
+        "EXPO_PUBLIC_ENABLE_DEV_TOOLS": "true"
+      }
+    },
+    "development-simulator": {
+      "channel": "development",
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "APP_VARIANT": "development",
+        "EXPO_PUBLIC_ENABLE_DEV_TOOLS": "true"
+      },
       "ios": {
         "simulator": true
       }
     },
     "preview": {
-      "distribution": "internal"
+      "channel": "preview",
+      "distribution": "internal",
+      "env": {
+        "APP_VARIANT": "preview",
+        "EXPO_PUBLIC_ENABLE_DEV_TOOLS": "true"
+      }
     },
-    "production": {}
+    "client-demo": {
+      "channel": "client-demo",
+      "distribution": "internal",
+      "environment": "preview",
+      "env": {
+        "APP_VARIANT": "preview",
+        "EXPO_PUBLIC_API_BASE_URL": "https://atoupay-backend-ev67wqijcq-ew.a.run.app",
+        "EXPO_PUBLIC_ENABLE_DEV_TOOLS": "false",
+        "EXPO_PUBLIC_USE_BACKEND": "true"
+      }
+    },
+    "production": {
+      "channel": "production",
+      "env": {
+        "APP_VARIANT": "production",
+        "EXPO_PUBLIC_ENABLE_DEV_TOOLS": "false"
+      }
+    }
   }
 }
-

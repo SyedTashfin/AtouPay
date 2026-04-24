@@ -1,5 +1,6 @@
 import { router } from 'expo-router';
-import { SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '@/src/components/PrimaryButton';
 import { colors } from '@/src/theme/colors';
@@ -42,4 +43,3 @@ const styles = StyleSheet.create({
     ...typography.body,
   },
 });
-

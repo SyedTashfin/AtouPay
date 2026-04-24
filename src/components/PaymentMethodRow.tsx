@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { PaymentProvider } from '@/src/types';
 import { colors } from '@/src/theme/colors';
 import { radius } from '@/src/theme/radius';
+import { shadows } from '@/src/theme/shadows';
 import { spacing } from '@/src/theme/spacing';
 import { typography } from '@/src/theme/typography';
 
@@ -64,15 +65,16 @@ export function PaymentMethodRow({
 const styles = StyleSheet.create({
   card: {
     alignItems: 'center',
-    borderRadius: radius.md,
+    borderRadius: radius.xl,
     borderWidth: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
     minHeight: 68,
     padding: spacing.sm,
+    ...shadows.soft,
   },
   cardDefault: {
-    backgroundColor: colors.surface,
+    backgroundColor: colors.surfaceGlass,
     borderColor: colors.border,
   },
   cardSelected: {

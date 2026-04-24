@@ -1,3 +1,4 @@
+import { ReactNode } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Property } from '@/src/types';
@@ -10,11 +11,12 @@ import { typography } from '@/src/theme/typography';
 import { StatusPill } from '@/src/components/StatusPill';
 
 interface PropertyCardProps {
+  footerContent?: ReactNode;
   property: Property;
   tenantCount: number;
 }
 
-export function PropertyCard({ property, tenantCount }: PropertyCardProps) {
+export function PropertyCard({ footerContent, property, tenantCount }: PropertyCardProps) {
   return (
     <View style={styles.card}>
       <View style={styles.header}>
@@ -37,19 +39,21 @@ export function PropertyCard({ property, tenantCount }: PropertyCardProps) {
           <Text style={styles.metricValue}>{tenantCount}</Text>
         </View>
       </View>
+
+      {footerContent ? <View style={styles.footerContent}>{footerContent}</View> : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceGlass,
+    borderRadius: radius.xl,
     borderWidth: 1,
     borderColor: colors.border,
     gap: spacing.sm,
     padding: spacing.sm,
-    ...shadows.card,
+    ...shadows.glass,
   },
   header: {
     alignItems: 'flex-start',
@@ -75,12 +79,16 @@ const styles = StyleSheet.create({
   address: {
     color: colors.textMuted,
     flexShrink: 1,
+    minWidth: 0,
     ...typography.body,
   },
   footer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: spacing.sm,
+  },
+  footerContent: {
+    gap: spacing.xs,
   },
   metricLabel: {
     color: colors.textMuted,

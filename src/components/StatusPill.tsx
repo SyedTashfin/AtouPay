@@ -30,9 +30,33 @@ const paymentConfig = {
     borderColor: '#E8B2B2',
     color: colors.danger,
   },
+  failed: {
+    label: 'Échec',
+    backgroundColor: colors.dangerSoft,
+    borderColor: '#E8B2B2',
+    color: colors.danger,
+  },
+  cancelled: {
+    label: 'Annulé',
+    backgroundColor: colors.neutralSoft,
+    borderColor: '#D4DDD8',
+    color: colors.neutral,
+  },
+  disputed: {
+    label: 'Contesté',
+    backgroundColor: colors.warningSoft,
+    borderColor: '#F0D59C',
+    color: colors.warning,
+  },
 };
 
 const occupancyConfig = {
+  invited: {
+    label: 'Invité',
+    backgroundColor: colors.warningSoft,
+    borderColor: '#F0D59C',
+    color: colors.warning,
+  },
   occupied: {
     label: 'Occupé',
     backgroundColor: colors.primarySoft,

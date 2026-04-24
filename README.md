@@ -1,6 +1,119 @@
 # ATouPay
 
+[![CI](https://github.com/SyedTashfin/AtouPay/actions/workflows/ci.yml/badge.svg)](https://github.com/SyedTashfin/AtouPay/actions/workflows/ci.yml)
+
 ATouPay is an Expo Router mobile MVP focused only on payment-first rental workflows for tenants and owners.
+
+## Repository status
+
+- Public source repository for the ATouPay mobile app and backend service
+- Expo Router React Native app with native iOS and Android projects
+- Fastify backend for critical write flows, receipt issuance, support, and agency operations
+- Firebase Auth and Firestore integration
+- Payments are simulated until a real provider is explicitly integrated and verified
+
+## Backend status
+
+This repository now has two backend layers:
+
+- Firebase Authentication for identity
+- Cloud Firestore for application data and reads
+- Firestore Security Rules for access control
+- a separate Fastify backend under `/backend` for the first critical write flows
+
+The mobile app can route the minimum end-to-end write slice through the backend when `EXPO_PUBLIC_USE_BACKEND=true`:
+
+- profile bootstrap
+- owner access activation
+- owner property creation
+- owner unit creation
+- tenant invite generation
+- tenant invite redemption
+
+Current reads remain on Firestore in the Expo app for the lowest-risk local test setup. Payments are still simulated.
+
+## Trust, recovery, and receipt hardening
+
+The current app now includes a minimum operational trust layer on top of the existing owner/tenant/payment flow:
+
+- versioned terms of use served by the backend
+- per-user terms acceptance tracking
+- a responsibility/help screen with clear support guidance
+- self-service password recovery by e-mail
+- assisted recovery requests routed to the agency
+- support, incident, and dispute requests stored in the backend
+- strengthened receipt metadata and wording
+- receipt QR codes, PDF export, and native share flow
+- in-app notifications/event feed for payment, invite, support, and account-status events
+- agency and owner dashboard summaries
+- agency account suspension/reactivation and minimal audit history
+- French, Arabic, and English language selector with initial core-string coverage
+- public receipt verification that confirms recorded system data only
+
+Important:
+
+- phone recovery is **not** fully enabled at this stage
+- the app stores a phone number and recovery preference for agency callback/support handling
+- actual phone-based sign-in or recovery still requires Firebase Phone Auth enablement and verification setup
+- payments remain simulated unless a real provider is explicitly integrated and verified
+
+## Current operational product slice
+
+ATouPay now supports three operational roles:
+
+- `agency_admin`
+- `owner`
+- `tenant`
+
+Normal owner onboarding no longer depends on CLI-only invite issuance:
+
+- an agency admin logs into the app
+- the agency admin creates or revokes owner access invites in the app
+- an owner authenticates with Google or e-mail/password
+- the owner activates access with an agency invite code or link
+- the active owner creates properties, units, and tenant invites
+- a tenant authenticates and redeems the unit invite
+- rent payments remain simulated, but the ledger now records:
+  - `grossAmount`
+  - `agencyFeeAmount`
+  - `ownerNetAmount`
+  - `commissionRate`
+  - `agencyId`
+- the backend now generates receipts and verification tokens for simulated payments
+
+Important:
+
+- commission is ledger automation only in this phase
+- receipt generation is real
+- receipt QR/PDF/share are implemented for backend-issued receipts
+- notifications are in-app records only; push notifications are not configured yet
+- payment settlement is still simulated
+- no real banking or mobile money split disbursement is implied
+
+The backend design documents remain here:
+
+- [Backend architecture](./docs/backend-architecture.md)
+- [Backend API v1 draft](./docs/backend-api-v1.md)
+
+## Simplest real DEV project local setup
+
+The simplest production-like local path for ATouPay right now is:
+
+- one real Firebase DEV project
+- Expo app using that project for Firebase Auth and Firestore reads
+- local Fastify backend using Firebase Admin SDK against the same project
+- `EXPO_PUBLIC_USE_BACKEND=true` so critical writes go through the backend
+- simulated payments only
+
+This path does **not** use Firebase emulators.
+
+### What lives where
+
+- App Firebase config goes in `.env.local`
+- Backend Admin SDK config goes in `backend/.env`
+- The Firebase Admin service-account JSON is for **local backend testing only**
+- Keep that JSON outside the repo and reference it with an absolute path through `GOOGLE_APPLICATION_CREDENTIALS`
+- For Cloud Run or production, prefer an attached service account / ADC instead of private key blobs in env
 
 ## Local native development on Mac
 
@@ -39,7 +152,8 @@ export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platfo
 ### Install dependencies
 
 ```bash
-cd /Users/syedtashfin/Documents/GitHub/AtouPay
+git clone https://github.com/SyedTashfin/AtouPay.git
+cd AtouPay
 npm install
 ```
 
@@ -54,8 +168,188 @@ npm run start
 Equivalent direct Expo command:
 
 ```bash
-npx expo start --dev-client
+npx expo start --dev-client --scheme atoupay
 ```
+
+### Agency-gated owner testing
+
+Owner access is now agency-gated. For local testing, seed an owner access invite from the backend instead of creating an open owner account:
+
+```bash
+cd backend
+npm run owner-access:invite -- --agency agency-dev --email owner@example.com --rate 0.1
+```
+
+Use the printed code in the app’s `Code d’accès agence` field, or open the printed `ownerInvite` deep link.
+
+### Cloud backend instead of localhost
+
+If you do not want to run the backend on localhost, deploy `/backend` to Cloud Run in any billed GCP project and point the app to that URL.
+
+Example app env:
+
+```dotenv
+EXPO_PUBLIC_USE_BACKEND=true
+EXPO_PUBLIC_API_BASE_URL=https://your-cloud-run-url
+```
+
+Notes:
+
+- the Firebase project can stay `atoupay-dev-20260422`
+- the Cloud Run project can be different from the Firebase project
+- the backend README documents the deployment command and credential model
+
+### First agency admin bootstrap
+
+For a real operator flow, bootstrap the first agency admin once, then manage owner access in-app:
+
+```bash
+cd backend
+npm run agency-admin:bootstrap -- \
+  --email admin@example.com \
+  --agency-id agency-dev \
+  --agency-name "Agence ATouPay"
+```
+
+Then:
+
+1. sign in with that e-mail in the app
+2. choose the `Agence` role
+3. open the agency area
+4. create owner access invites in-app from the `Invitations` tab
+
+The older CLI owner-invite script remains available for emergency/bootstrap use only. It is no longer the normal business workflow.
+
+### Commission settings
+
+Commission settings are stored in `agencies/{agencyId}` with:
+
+- `commissionType: "percentage"`
+- `commissionRate`
+
+Agency admins can update the percentage in-app. The new rate applies only to future simulated payment ledger entries and receipts.
+
+### Terms of use and responsibility
+
+ATouPay now serves a backend-owned, versioned terms document. Users must accept the currently active version before full app usage when backend mode is enabled.
+
+The default current wording states, in substance:
+
+- AtouPay acts as a management and internal proof platform according to the information recorded in the system
+- payments remain simulated until a real provider is integrated and verified
+- payment errors, non-payment, bugs, outages, and disputes must be escalated through the agency support path
+- generated documents may serve as justification according to recorded system data, without automatically becoming bank-certified or government-certified proof
+
+Operational behavior:
+
+- new users are prompted to accept before entering the protected role areas
+- existing users are prompted again when the terms version changes
+- the current public screens are:
+  - `/terms`
+  - `/help`
+  - `/support`
+
+### Account recovery
+
+Two recovery layers now exist:
+
+1. **Self-service**
+   - password reset by e-mail through Firebase Authentication
+   - entry point from the unified auth flow and verification screens
+
+2. **Agency-assisted recovery**
+   - the user can submit a recovery request with e-mail, phone number, and preferred contact channel
+   - the agency admin can review and resolve that request from the in-app agency support area
+
+Phone recovery status:
+
+- storing a phone number and recovery preference is implemented
+- Firebase Phone Auth recovery is **not enabled by default in this repo**
+- do not present phone recovery as an active sign-in or reset method unless Firebase Phone Auth is actually configured in the target project
+
+### Support, incidents, and disputes
+
+The app now provides a minimal operational support flow:
+
+- authenticated users can create support requests
+- payment screens can open support prefilled for payment problems
+- unauthenticated users can submit account recovery requests
+- agency admins can list requests for their agency and mark them `in_progress` or `resolved`
+
+This is intentionally not a full ticketing suite. It is the minimum viable operational support layer.
+
+### Dashboards, notifications, and account control
+
+The app now has lightweight operational views without becoming a BI/admin suite:
+
+- agency dashboard: active owners/tenants, properties, units, pending owner invites, support status, payment status, and simulated commission totals
+- owner dashboard: properties, units, occupancy, tenant count, pending/paid/late payments, gross amount, agency fee, and owner net
+- notification feed: in-app records only, visible from the bell icon and `/notifications`
+- agency user registry: owners and tenants can be suspended or reactivated by agency admins
+- agency audit tab: recent operational events for invites, owner activation, support, payment completion, and account status changes
+
+Suspended accounts remain Firebase accounts, but normal app usage is blocked until the agency reactivates the account. This is product access control, not deletion.
+
+### Language support
+
+The current multilingual layer supports a persisted language selector for:
+
+- French
+- Arabic
+- English
+
+The first pass covers core operational strings, notification/error/support wording, and new production-readiness surfaces. It does not yet guarantee every historical string in the app is translated. Arabic RTL is allowed at the app layer, but a full RTL visual QA pass remains required before treating Arabic as production-polished.
+
+### Receipts and verification
+
+When a tenant completes a simulated payment through the backend-enabled app flow:
+
+- the backend finalizes the simulated payment
+- the backend generates a receipt number
+- the backend stores a receipt record in `receipts/{receiptId}`
+- the backend generates a verification token and verification URL
+- the app can open the receipt detail screen
+- the app can export/share a PDF version of the receipt
+- the receipt detail and PDF include a QR code pointing to the public verification URL
+- the public receipt verification screen confirms whether the receipt token is valid
+
+Receipt wording is intentionally careful. The current app uses wording along these lines:
+
+- `Quittance générée par AtouPay`
+- `peut servir de justificatif de paiement selon les informations enregistrées dans le système`
+- when applicable, an explicit marker that the payment is simulated and no real debit occurred
+
+Every receipt still states clearly that the payment is simulated and no real debit occurred.
+The product does **not** claim automatic banking certification, government certification, or real settlement when those things are not actually in place.
+
+### Future fintech/provider readiness
+
+The backend now has a small payment-provider boundary for the current simulated finalization path. It deliberately returns only simulated provider references today.
+
+Before any real provider is enabled, the system still needs:
+
+- provider credentials stored outside the mobile app
+- webhook signature verification
+- idempotent provider references
+- real failure/cancel/dispute handling
+- reconciliation against provider statements
+- verified split settlement or explicit non-split wording
+
+### Operational readiness notes
+
+Current health/readiness:
+
+- backend health check: `GET /health`
+- backend Dockerfile and Cloud Run deployment script exist under `/backend`
+- Firestore remains the source of truth for app data
+
+Recommended production operations still to configure outside this app code:
+
+- Firestore scheduled exports/backups for users, invites, payments, receipts, support, notifications, and audit logs
+- retention policy for receipts/support/audit records
+- Cloud Logging alerting on backend 5xx/error-rate spikes
+- Cloud Run min/max instance settings appropriate to traffic and free-tier budget
+- least-privilege service account for backend Firestore/Auth access
 
 ### How to open iOS Simulator
 
@@ -116,6 +410,8 @@ npx expo run:android --no-bundler
 
 Notes:
 - Keep Metro running first with `npm run start` because the Android script is configured with `--no-bundler`.
+- `npm run android` prepends the default macOS Android SDK paths automatically. If your SDK lives elsewhere, export `ANDROID_SDK_ROOT` first.
+- `npm run android` also falls back to Java 17 from `JAVA_HOME`, `java_home -v 17`, or the default Homebrew OpenJDK 17 path.
 - The first local run may generate the `android/` folder and download missing native toolchain pieces such as NDK/build tools.
 - The first native Android build can take several minutes.
 
@@ -128,7 +424,7 @@ npm run start:clear
 Equivalent direct Expo command:
 
 ```bash
-npx expo start --dev-client --clear
+npx expo start --dev-client --clear --scheme atoupay
 ```
 
 ### How to recover from stale native builds
@@ -173,9 +469,47 @@ This app reads a small set of environment variables for local configuration:
 
 ```bash
 export APP_VARIANT=development
-export EXPO_PUBLIC_API_BASE_URL=https://placeholder-api.atoupay.local
 export EXPO_PUBLIC_ENABLE_DEV_TOOLS=true
+export EXPO_PUBLIC_EAS_PROJECT_ID=<your-eas-project-id>
+export EXPO_PUBLIC_FIREBASE_API_KEY=<your-firebase-api-key>
+export EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=<your-firebase-auth-domain>
+export EXPO_PUBLIC_FIREBASE_PROJECT_ID=<your-firebase-project-id>
+export EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=<your-firebase-storage-bucket>
+export EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=<your-firebase-messaging-sender-id>
+export EXPO_PUBLIC_FIREBASE_APP_ID=<your-firebase-app-id>
+export EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=<your-web-client-id>
+export EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=<your-ios-client-id>
+export EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME=<your-reversed-ios-client-id>
+export EXPO_PUBLIC_USE_BACKEND=false
 ```
+
+For backend-enabled local testing:
+
+- set `EXPO_PUBLIC_USE_BACKEND=true`
+- leave `EXPO_PUBLIC_API_BASE_URL` unset on simulators unless you need a non-default host
+- the app resolves local defaults automatically:
+  - iOS Simulator and web: `http://127.0.0.1:3001`
+  - Android Emulator: `http://10.0.2.2:3001`
+- on a physical device, set an explicit reachable URL with `EXPO_PUBLIC_API_BASE_URL`
+
+Example local app env for backend testing:
+
+```bash
+export APP_VARIANT=development
+export EXPO_PUBLIC_ENABLE_DEV_TOOLS=true
+export EXPO_PUBLIC_USE_BACKEND=true
+export EXPO_PUBLIC_FIREBASE_API_KEY=<your-firebase-api-key>
+export EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=<your-firebase-auth-domain>
+export EXPO_PUBLIC_FIREBASE_PROJECT_ID=<your-firebase-project-id>
+export EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=<your-firebase-storage-bucket>
+export EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=<your-firebase-messaging-sender-id>
+export EXPO_PUBLIC_FIREBASE_APP_ID=<your-firebase-app-id>
+export EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=<your-web-client-id>
+export EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=<your-ios-client-id>
+export EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME=<your-reversed-ios-client-id>
+```
+
+There is also a ready-to-copy example file in [.env.local.example](./.env.local.example).
 
 Native toolchain environment variables that matter:
 
@@ -184,6 +518,336 @@ export ANDROID_SDK_ROOT="$HOME/Library/Android/sdk"
 export ANDROID_HOME="$ANDROID_SDK_ROOT"
 export JAVA_HOME="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
 ```
+
+## Firebase manual authentication
+
+ATouPay now uses the Firebase JavaScript SDK for:
+
+- email/password sign up
+- email/password sign in
+- password reset
+- email verification
+- Firestore profile storage in `users/{uid}`
+- owner, property, unit, invite, payment, and receipt storage in Firestore
+- bridging the native Google sign-in flow into Firebase Auth when Firebase is configured
+
+Required local env values:
+
+```bash
+export EXPO_PUBLIC_FIREBASE_API_KEY=<your-firebase-api-key>
+export EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=<your-firebase-auth-domain>
+export EXPO_PUBLIC_FIREBASE_PROJECT_ID=<your-firebase-project-id>
+export EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=<your-firebase-storage-bucket>
+export EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=<your-firebase-messaging-sender-id>
+export EXPO_PUBLIC_FIREBASE_APP_ID=<your-firebase-app-id>
+```
+
+Recommended local placement:
+
+- Put them in `.env.local` for development builds.
+- Mirror them into the relevant EAS environment for preview and production builds.
+
+Important implementation notes:
+
+- This repo uses the Firebase JS SDK, not React Native Firebase.
+- `GoogleService-Info.plist` is not required for the current email/password + Firestore JS SDK flow.
+- `google-services.json` is not required for the current email/password + Firestore JS SDK flow.
+- If Firebase env values are missing, the app stays runnable, manual auth is disabled with an explanatory notice, and internal demo shortcuts remain available in development/preview builds.
+- Payments are still simulated in this version. No real charge or payment gateway integration is performed.
+
+### Tenant assignment and invite flow
+
+The V1 tenant-assignment model is:
+
+- owners can sign up freely
+- owners create properties, then units
+- owners generate a single-use invite code or deep link for one specific unit
+- tenants sign up or log in, then redeem that invite to be attached to the unit
+- tenants cannot freely type an apartment name to self-assign a unit
+
+## Local end-to-end backend testing
+
+This is the smallest coherent local test path currently supported:
+
+1. Firebase Auth signs the user in against one real Firebase DEV project
+2. the Expo app gets a Firebase ID token
+3. critical writes go through the local Fastify backend when `EXPO_PUBLIC_USE_BACKEND=true`
+4. Firestore remains the read source for owner, tenant, unit, invite, and simulated payment screens
+
+### Start the real-project local stack
+
+Do not start Firebase emulators for this path. The app and backend should both point at the same real Firebase DEV project.
+
+Start the backend:
+
+```bash
+cd backend
+npm install
+npm run dev
+```
+
+Check backend health:
+
+```bash
+curl http://127.0.0.1:3001/health
+```
+
+Start the Expo app:
+
+```bash
+cd AtouPay
+npm install
+EXPO_PUBLIC_USE_BACKEND=true npm run start
+```
+
+Open a simulator or emulator in a second terminal:
+
+```bash
+EXPO_PUBLIC_USE_BACKEND=true npm run ios
+# or
+EXPO_PUBLIC_USE_BACKEND=true npm run android
+```
+
+### Manual owner flow
+
+1. On the first screen, choose `Propriétaire`.
+2. Create an account or sign in.
+3. Confirm the dev-only backend notice says the backend is reachable.
+4. Open `Biens et unités`.
+5. Create a property.
+6. Create a unit under that property.
+7. Generate an invite for the unit and copy the code or link.
+
+Expected result:
+
+- the profile bootstrap succeeds through the backend
+- the property appears in the owner list
+- the unit appears with status `Invité` after invite generation
+- the invite card exposes a code and link that can be copied
+
+### Manual tenant flow
+
+1. Sign out.
+2. Return to the first screen and choose `Locataire`, or open the invite deep link so the tenant path locks automatically.
+3. Create a tenant account or sign in.
+4. Paste or enter the invite code on the tenant home screen.
+5. Redeem the invite.
+6. Confirm the tenant now sees the linked rental/unit data.
+7. Open the rent payment screen and complete the existing simulated payment flow.
+
+Expected result:
+
+- the invite redemption succeeds through the backend
+- the tenant is bound to the invited unit only
+- the owner side reflects the tenant and unit assignment
+- the payment UI remains explicitly simulated and no real debit is implied
+
+Security notes for this flow:
+
+- invite claim is enforced through an atomic Firestore transaction
+- Firestore Security Rules validate that the invite, unit, tenant profile, user profile, and seeded pending rent payment are committed together
+- the raw invite code is not stored in Firestore; the app stores a SHA-256 hash and uses the hash as the invite document ID
+- payments remain simulated even after tenant assignment
+
+### Firestore rules in this repo
+
+The repo includes:
+
+- `firestore.rules`
+- `firebase.json`
+
+Deploy the rules explicitly after creating the Firebase project:
+
+```bash
+npx firebase-tools login
+npx firebase-tools deploy --only firestore:rules --project <your-firebase-project-id>
+```
+
+After changing the invite, unit, or payment-ownership rules, redeploy them before testing native builds again.
+
+### Firebase console checklist
+
+1. Create or select the Firebase project for ATouPay.
+2. Add a Web app in Firebase and copy its config values into `.env.local`.
+3. In Authentication > Sign-in method:
+   - enable `Email/Password`
+   - enable `Google`
+4. In Firestore Database:
+   - create the database in production mode or locked-down mode
+   - deploy the rules from `firestore.rules`
+5. In Authentication settings, ensure the required domains are authorized if your workflow needs them.
+6. Keep the existing Google OAuth client IDs configured for the native Google sign-in module:
+   - `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`
+   - `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID`
+   - `EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME`
+7. For Android Google sign-in, make sure Google Cloud contains OAuth clients for the exact package name and SHA-1 fingerprints used by your local debug and preview builds.
+
+## Google sign-in configuration
+
+ATouPay now uses `@react-native-google-signin/google-signin` for mobile Google login in development and preview builds.
+
+Required env values:
+
+```bash
+export EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=<your-web-client-id>
+export EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=<your-ios-client-id>
+export EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME=<your-reversed-ios-client-id>
+```
+
+Android note:
+
+- Keep an Android OAuth client configured in Google Cloud for the app package and signing certificate fingerprints.
+- Do not add `EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID` to this repo. The installed `@react-native-google-signin/google-signin` library does not accept `androidClientId` in `GoogleSignin.configure(...)`.
+
+Recommended local placement:
+
+- Put them in a local `.env.local` file for development builds.
+- Mirror them into the relevant EAS environment for preview or production builds.
+
+This repo is wired for the Expo config-plugin path without Firebase:
+
+- `GoogleService-Info.plist` is not required in the current setup.
+- `google-services.json` is not required in the current setup.
+- The dynamic config adds the Google Sign-In config plugin only when `EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME` is present.
+
+Important behavior:
+
+- Google login requires development builds or EAS preview/production builds. It does not work in Expo Go.
+- After adding the Google Sign-In plugin or changing its iOS URL scheme, rebuild the native apps:
+
+```bash
+npm run ios
+npm run android
+```
+
+- If the OAuth values are missing, the app keeps rendering and the Google button stays disabled with an explanatory notice in development/preview builds.
+- Payments are still simulated in this version. ATouPay does not perform any real charge or payment gateway integration yet.
+
+## Internal preview builds
+
+This repo is configured for EAS preview builds that keep the current payment-first MVP intact while switching the app variant to `preview` for internal sharing.
+
+Before publishing preview builds or updates, make sure the repo is linked to an Expo project and that the EAS project ID is available locally:
+
+```bash
+export EXPO_PUBLIC_EAS_PROJECT_ID=<your-eas-project-id>
+```
+
+If this repository is not linked yet, log in and initialize EAS once:
+
+```bash
+npx eas-cli login
+npx eas-cli init
+```
+
+### Preview build commands
+
+Android internal preview:
+
+```bash
+npx eas-cli build --profile preview --platform android
+```
+
+iOS internal preview:
+
+```bash
+npx eas-cli build --profile preview --platform ios
+```
+
+Equivalent npm scripts:
+
+```bash
+npm run eas:build:android:preview
+npm run eas:build:ios:preview
+```
+
+Development build commands:
+
+```bash
+npm run eas:build:android:development
+npm run eas:build:ios:development
+```
+
+Production build commands:
+
+```bash
+npm run eas:build:android:production
+npm run eas:build:ios:production
+```
+
+Profile behavior:
+
+- `development` creates a dev-client build for active local testing.
+- `preview` creates an internal-distribution build with the `preview` app variant for shareable QA installs.
+- `production` creates the production app variant and disables debug-only surfaces.
+
+### Install or share a preview build
+
+Run one of the preview build commands above. When EAS finishes, the CLI prints the build details URL and the install page.
+
+- Share the install page URL directly with reviewers.
+- For iOS, reviewers can open the install page on-device or install through Orbit/TestFlight, depending on the configured distribution path.
+- For Android, reviewers can install the generated `.apk` or use the EAS install page.
+
+To retrieve the latest completed preview builds later:
+
+```bash
+npx eas-cli build:list --platform ios --status finished --limit 3
+npx eas-cli build:list --platform android --status finished --limit 3
+```
+
+### Publish a preview update
+
+Preview and production are isolated by EAS Update channel:
+
+- preview builds use the `preview` channel
+- production builds use the `production` channel
+- development builds use the `development` channel
+
+The app uses a manual `runtimeVersion` equal to the app version (`1.0.0` today), which is compatible with the current native-project workflow and allows compatible JS-only preview iterations until the app version changes.
+
+Publish a preview update with an explicit message:
+
+```bash
+export EXPO_PUBLIC_EAS_PROJECT_ID=<your-eas-project-id>
+npm run eas:update:preview -- --message "Client review: build info and receipt confirmation"
+```
+
+Equivalent direct EAS command:
+
+```bash
+APP_VARIANT=preview EXPO_PUBLIC_ENABLE_DEV_TOOLS=true EXPO_PUBLIC_EAS_PROJECT_ID=<your-eas-project-id> \
+  npx eas-cli update --channel preview --message "Client review: build info and receipt confirmation"
+```
+
+Publish a production update only from the production variant:
+
+```bash
+export EXPO_PUBLIC_EAS_PROJECT_ID=<your-eas-project-id>
+npm run eas:update:production -- --message "Production hotfix message"
+```
+
+### Reset demo data in preview builds
+
+In preview and development builds:
+
+1. Open `Profil`
+2. Open `Build info`
+3. Tap `Outils de validation`
+4. Use one of the preview-only helpers:
+   - `Restaurer les données seed`
+   - `Réinitialiser la démo`
+   - `Vider la session`
+   - `Passer en locataire` / `Passer en propriétaire`
+
+These tools are hidden automatically in production builds.
+
+### How to tell preview vs production inside the app
+
+- Preview builds show a subtle `Preview` badge in screen headers.
+- Development builds show a subtle `Build interne` badge in screen headers.
+- Profile screens include a `Build info` block with app name, variant, version, native build version, runtime, update channel, platform, and current route.
+- Production hides the preview-only validation tools.
 
 ## Troubleshooting
 
@@ -205,6 +869,12 @@ If Expo built successfully but did not bring the Simulator window to the front, 
 ```bash
 open -a Simulator
 xcrun simctl launch booted com.atoupay.mobile.dev
+```
+
+If the Expo development client opens its launcher instead of the ATouPay app after a stale recent URL, reopen the app via its custom scheme:
+
+```bash
+xcrun simctl openurl booted atoupay://
 ```
 
 ### Xcode license issues
@@ -345,4 +1015,11 @@ If the build succeeds but the app does not open automatically, launch it manuall
 ```bash
 xcrun simctl launch booted com.atoupay.mobile.dev
 adb shell monkey -p com.atoupay.mobile.dev -c android.intent.category.LAUNCHER 1
+```
+
+If the development client lands on its launcher instead of the app content, force the app deep link directly:
+
+```bash
+xcrun simctl openurl booted atoupay://
+adb shell am start -W -a android.intent.action.VIEW -d "atoupay://" com.atoupay.mobile.dev
 ```

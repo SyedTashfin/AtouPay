@@ -1,0 +1,33 @@
+{
+  "name": "@atoupay/backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/src/server.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test tests/**/*.test.ts",
+    "deploy:cloud-run": "tsx scripts/deploy-cloud-run.ts",
+    "agency-admin:bootstrap": "tsx scripts/bootstrap-agency-admin.ts",
+    "owner-access:invite": "tsx scripts/create-owner-access-invite.ts",
+    "client-demo:seed": "tsx scripts/seed-client-demo.ts"
+  },
+  "dependencies": {
+    "@fastify/type-provider-typebox": "6.1.0",
+    "@sinclair/typebox": "0.34.49",
+    "dotenv": "17.4.2",
+    "fastify": "5.8.5",
+    "firebase-admin": "13.8.0",
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "25.6.0",
+    "tsx": "4.21.0",
+    "typescript": "5.9.2"
+  }
+}

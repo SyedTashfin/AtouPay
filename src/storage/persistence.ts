@@ -3,6 +3,9 @@ import * as SecureStore from 'expo-secure-store';
 
 export const storageKeys = {
   dismissedHints: 'atoupay.dismissedHints',
+  language: 'atoupay.language',
+  pendingInviteCode: 'atoupay.pendingInviteCode',
+  pendingOwnerAccessCode: 'atoupay.pendingOwnerAccessCode',
   paymentFilters: 'atoupay.paymentFilters',
   payments: 'atoupay.payments',
   selectedDemoRole: 'atoupay.selectedDemoRole',

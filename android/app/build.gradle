@@ -3,6 +3,17 @@ apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
+def atoupayVariant = System.getenv("APP_VARIANT") ?: "development"
+def atoupayApplicationId = atoupayVariant == "production"
+        ? "com.atoupay.mobile"
+        : atoupayVariant == "preview"
+                ? "com.atoupay.mobile.preview"
+                : "com.atoupay.mobile.dev"
+def atoupayAppName = atoupayVariant == "production"
+        ? "ATouPay"
+        : atoupayVariant == "preview"
+                ? "ATouPay Preview"
+                : "ATouPay Dev"
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -87,13 +98,18 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.atoupay.mobile.dev'
+    namespace "com.atoupay.mobile.dev"
     defaultConfig {
-        applicationId 'com.atoupay.mobile.dev'
+        // Expo CLI needs a literal id to launch local Android builds.
+        applicationId "com.atoupay.mobile.dev"
+        if (atoupayVariant == "production" || atoupayVariant == "preview") {
+            applicationId atoupayApplicationId
+        }
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0.0"
+        resValue "string", "app_name", atoupayAppName
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }

@@ -1,24 +1,32 @@
+import { router } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PropertyCard } from '@/src/components/PropertyCard';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
 import { SectionTitle } from '@/src/components/SectionTitle';
 import { SummaryCard } from '@/src/components/SummaryCard';
+import { ListEmptyState } from '@/src/components/ListEmptyState';
 import { useAppContext } from '@/src/context/AppProvider';
+import { useSession } from '@/src/context/SessionProvider';
+import { getOwnerDashboardViaBackend } from '@/src/services/backendApi';
+import { OwnerBackendDashboardSummary } from '@/src/types';
 import { colors } from '@/src/theme/colors';
 import { radius } from '@/src/theme/radius';
 import { spacing } from '@/src/theme/spacing';
 import { typography } from '@/src/theme/typography';
+import { getFirstName } from '@/src/utils/auth';
 import { formatCurrency } from '@/src/utils/currency';
 
 function NotificationBell({ count }: { count: number }) {
   return (
     <Pressable
-      accessibilityHint="Affiche les alertes liées aux paiements"
+      accessibilityHint="Ouvre le suivi des paiements à confirmer ou relancer"
       accessibilityLabel="Notifications du propriétaire"
       accessibilityRole="button"
-      onPress={() => {}}
+      onPress={() => router.push('/notifications')}
       style={({ pressed }) => [styles.bellButton, pressed && styles.pressed]}>
       <Feather color={colors.text} name="bell" size={18} />
       {count > 0 ? (
@@ -32,6 +40,32 @@ function NotificationBell({ count }: { count: number }) {
 
 export default function OwnerHomeScreen() {
   const { ownerDashboardSummary, ownerUser, properties } = useAppContext();
+  const { session } = useSession();
+  const [backendSummary, setBackendSummary] = useState<OwnerBackendDashboardSummary | null>(null);
+  const firstName = getFirstName(
+    session?.profile?.displayName ?? ownerUser.fullName,
+    ownerUser.fullName.split(' ')[0],
+  );
+
+  useEffect(() => {
+    let isMounted = true;
+
+    void getOwnerDashboardViaBackend('this_month')
+      .then((summary) => {
+        if (isMounted) {
+          setBackendSummary(summary);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setBackendSummary(null);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -41,13 +75,13 @@ export default function OwnerHomeScreen() {
             <NotificationBell count={ownerDashboardSummary.pendingCount + ownerDashboardSummary.lateCount} />
           }
           subtitle="Suivi des revenus, priorités et parc locatif"
-          title={`Bonjour, ${ownerUser.fullName.split(' ')[0]}`}
+          title={`Bonjour, ${firstName}`}
         />
 
         <SummaryCard
-          helper={`Objectif du mois: ${formatCurrency(ownerDashboardSummary.expectedThisMonth)}`}
+          helper={`Brut encaissé: ${formatCurrency(ownerDashboardSummary.grossCollectedThisMonth)} • Commission agence: ${formatCurrency(ownerDashboardSummary.agencyFeesThisMonth)}`}
           progress={ownerDashboardSummary.progressPercentage}
-          subtitle="Revenu collecté ce mois-ci"
+          subtitle="Net propriétaire collecté ce mois-ci"
           title="Revenus mensuels"
           value={formatCurrency(ownerDashboardSummary.collectedThisMonth)}
         />
@@ -55,15 +89,15 @@ export default function OwnerHomeScreen() {
         <View style={styles.statsGrid}>
           <SummaryCard
             compact
-            subtitle="Biens suivis"
+            subtitle={`${backendSummary?.totalUnitsCount ?? properties.length} unités`}
             title="Propriétés"
-            value={String(ownerDashboardSummary.propertiesCount)}
+            value={String(backendSummary?.totalPropertiesCount ?? ownerDashboardSummary.propertiesCount)}
           />
           <SummaryCard
             compact
             subtitle="Locataires actifs"
             title="Locataires"
-            value={String(ownerDashboardSummary.tenantsCount)}
+            value={String(backendSummary?.totalTenantsCount ?? ownerDashboardSummary.tenantsCount)}
           />
           <SummaryCard
             accent="warning"
@@ -78,6 +112,12 @@ export default function OwnerHomeScreen() {
             subtitle="À relancer"
             title="En retard"
             value={String(ownerDashboardSummary.lateCount)}
+          />
+          <SummaryCard
+            compact
+            subtitle="Occupées / vacantes"
+            title="Unités"
+            value={`${backendSummary?.occupiedUnitsCount ?? ownerDashboardSummary.occupiedCount} / ${backendSummary?.vacantUnitsCount ?? 0}`}
           />
         </View>
 
@@ -101,15 +141,22 @@ export default function OwnerHomeScreen() {
 
         <View style={styles.section}>
           <SectionTitle subtitle="Aperçu du portefeuille locatif" title="Biens" />
-          <View style={styles.propertyList}>
-            {properties.slice(0, 2).map((property) => (
-              <PropertyCard
-                key={property.id}
-                property={property}
-                tenantCount={property.tenantIds.length}
-              />
-            ))}
-          </View>
+          {properties.length > 0 ? (
+            <View style={styles.propertyList}>
+              {properties.slice(0, 2).map((property) => (
+                <PropertyCard
+                  key={property.id}
+                  property={property}
+                  tenantCount={property.tenantIds.length}
+                />
+              ))}
+            </View>
+          ) : (
+            <ListEmptyState
+              description="Créez d’abord un bien puis une unité pour générer des invitations locataires."
+              title="Aucun bien connecté"
+            />
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>

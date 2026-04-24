@@ -1,7 +1,9 @@
+import { Feather } from '@expo/vector-icons';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { colors } from '@/src/theme/colors';
 import { radius } from '@/src/theme/radius';
+import { shadows } from '@/src/theme/shadows';
 import { spacing } from '@/src/theme/spacing';
 import { typography } from '@/src/theme/typography';
 
@@ -13,23 +15,41 @@ interface ListEmptyStateProps {
 export function ListEmptyState({ title, description }: ListEmptyStateProps) {
   return (
     <View style={styles.card}>
-      <Text style={styles.title}>{title}</Text>
-      <Text style={styles.description}>{description}</Text>
+      <View style={styles.iconWrap}>
+        <Feather color={colors.primaryDark} name="inbox" size={18} />
+      </View>
+      <View style={styles.copy}>
+        <Text style={styles.title}>{title}</Text>
+        <Text style={styles.description}>{description}</Text>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
+    alignItems: 'flex-start',
+    backgroundColor: colors.surfaceGlass,
+    borderRadius: radius.xl,
     borderWidth: 1,
     borderColor: colors.border,
+    gap: spacing.sm,
     padding: spacing.md,
+    ...shadows.soft,
+  },
+  iconWrap: {
+    alignItems: 'center',
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.pill,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  copy: {
+    gap: spacing.xs,
   },
   title: {
     color: colors.text,
-    marginBottom: spacing.xs,
     ...typography.subheading,
   },
   description: {
@@ -37,4 +57,3 @@ const styles = StyleSheet.create({
     ...typography.body,
   },
 });
-

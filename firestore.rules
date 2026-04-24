@@ -1,0 +1,367 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userPath(userId) {
+      return /databases/$(database)/documents/users/$(userId);
+    }
+
+    function unitPath(unitId) {
+      return /databases/$(database)/documents/units/$(unitId);
+    }
+
+    function tenantPath(tenantId) {
+      return /databases/$(database)/documents/tenants/$(tenantId);
+    }
+
+    function agencyPath(agencyId) {
+      return /databases/$(database)/documents/agencies/$(agencyId);
+    }
+
+    function ownerAccessInvitePath(inviteId) {
+      return /databases/$(database)/documents/ownerAccessInvites/$(inviteId);
+    }
+
+    function invitePath(inviteId) {
+      return /databases/$(database)/documents/tenantInvites/$(inviteId);
+    }
+
+    function paymentPath(paymentId) {
+      return /databases/$(database)/documents/rentPayments/$(paymentId);
+    }
+
+    function receiptPath(receiptId) {
+      return /databases/$(database)/documents/receipts/$(receiptId);
+    }
+
+    function currentUserExists() {
+      return signedIn() && exists(userPath(request.auth.uid));
+    }
+
+    function currentUser() {
+      return get(userPath(request.auth.uid)).data;
+    }
+
+    function isSelf(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function isCurrentOwner(ownerId) {
+      return currentUserExists() &&
+        request.auth.uid == ownerId &&
+        currentUser().role == 'owner' &&
+        currentUser().status == 'active' &&
+        currentUser().ownerId == ownerId;
+    }
+
+    function canReadOwner(ownerId) {
+      return isCurrentOwner(ownerId) ||
+        (currentUserExists() &&
+          currentUser().role == 'tenant' &&
+          currentUser().tenantId == request.auth.uid &&
+          currentUser().ownerId == ownerId);
+    }
+
+    function isCurrentTenant(tenantId) {
+      return currentUserExists() &&
+        request.auth.uid == tenantId &&
+        currentUser().role == 'tenant' &&
+        currentUser().status == 'active' &&
+        currentUser().tenantId == tenantId;
+    }
+
+    function isFreshTenantClaim() {
+      return currentUserExists() &&
+        currentUser().role == 'tenant' &&
+        currentUser().status == 'active' &&
+        currentUser().tenantId == null;
+    }
+
+    function inviteEmailMatches(email) {
+      return email == null ||
+        (request.auth.token.email != null && request.auth.token.email == email);
+    }
+
+    function isUserDocShape(userId) {
+      return request.resource.data.uid == userId &&
+        request.resource.data.status in ['active', 'pending_owner_access', 'suspended'] &&
+        request.resource.data.role in ['agency_admin', 'owner', 'tenant'] &&
+        (!('agencyId' in request.resource.data) || request.resource.data.agencyId == null || request.resource.data.agencyId is string) &&
+        (!('tenantId' in request.resource.data) || request.resource.data.tenantId == null || request.resource.data.tenantId == userId);
+    }
+
+    function validUserCreate(userId) {
+      return isSelf(userId) &&
+        isUserDocShape(userId) &&
+        (!('agencyId' in request.resource.data) || request.resource.data.agencyId == null) &&
+        (
+          (request.resource.data.role == 'owner' &&
+            (
+              (request.resource.data.status == 'active' &&
+                request.resource.data.ownerId == userId &&
+                request.resource.data.tenantId == null) ||
+              (request.resource.data.status == 'pending_owner_access' &&
+                request.resource.data.ownerId == null &&
+                request.resource.data.tenantId == null)
+            )) ||
+          (request.resource.data.role == 'tenant' &&
+            request.resource.data.status == 'active' &&
+            request.resource.data.tenantId == null &&
+            (!('ownerId' in request.resource.data) || request.resource.data.ownerId == null))
+        );
+    }
+
+    function validNonAssignmentUserUpdate(userId) {
+      return isSelf(userId) &&
+        isUserDocShape(userId) &&
+        request.resource.data.agencyId == resource.data.agencyId &&
+        request.resource.data.ownerId == resource.data.ownerId &&
+        request.resource.data.tenantId == resource.data.tenantId &&
+        (
+          (
+            request.resource.data.role == 'owner' &&
+            (
+              (request.resource.data.status == 'active' && request.resource.data.ownerId == userId) ||
+              (request.resource.data.status == 'pending_owner_access' && request.resource.data.ownerId == null)
+            )
+          ) ||
+          (request.resource.data.role == 'tenant' && request.resource.data.status in ['active', 'suspended'])
+        );
+    }
+
+    function validTenantClaimUserUpdate(userId) {
+      return isSelf(userId) &&
+        isUserDocShape(userId) &&
+        resource.data.role == 'tenant' &&
+        resource.data.tenantId == null &&
+        request.resource.data.role == 'tenant' &&
+        request.resource.data.agencyId == resource.data.agencyId &&
+        request.resource.data.tenantId == userId &&
+        existsAfter(tenantPath(userId)) &&
+        getAfter(tenantPath(userId)).data.userId == userId &&
+        request.resource.data.ownerId == getAfter(tenantPath(userId)).data.ownerId;
+    }
+
+    function canTenantReadProperty(propertyId) {
+      return currentUserExists() &&
+        currentUser().role == 'tenant' &&
+        currentUser().tenantId == request.auth.uid &&
+        exists(tenantPath(request.auth.uid)) &&
+        get(tenantPath(request.auth.uid)).data.propertyId == propertyId;
+    }
+
+    function canTenantReadInvite() {
+      return isFreshTenantClaim() &&
+        resource.data.status == 'pending' &&
+        resource.data.expiresAt > request.time &&
+        inviteEmailMatches(resource.data.email);
+    }
+
+    function validTenantClaimInviteUpdate(inviteId) {
+      return isFreshTenantClaim() &&
+        resource.data.status == 'pending' &&
+        resource.data.codeHash == inviteId &&
+        resource.data.expiresAt > request.time &&
+        inviteEmailMatches(resource.data.email) &&
+        request.resource.data.status == 'claimed' &&
+        request.resource.data.claimedByUid == request.auth.uid &&
+        request.resource.data.ownerId == resource.data.ownerId &&
+        request.resource.data.propertyId == resource.data.propertyId &&
+        request.resource.data.unitId == resource.data.unitId &&
+        request.resource.data.codeHash == resource.data.codeHash &&
+        existsAfter(unitPath(resource.data.unitId)) &&
+        getAfter(unitPath(resource.data.unitId)).data.tenantId == request.auth.uid &&
+        existsAfter(tenantPath(request.auth.uid)) &&
+        getAfter(tenantPath(request.auth.uid)).data.unitId == resource.data.unitId &&
+        getAfter(tenantPath(request.auth.uid)).data.ownerId == resource.data.ownerId &&
+        getAfter(tenantPath(request.auth.uid)).data.propertyId == resource.data.propertyId &&
+        existsAfter(userPath(request.auth.uid)) &&
+        getAfter(userPath(request.auth.uid)).data.tenantId == request.auth.uid &&
+        getAfter(userPath(request.auth.uid)).data.ownerId == resource.data.ownerId;
+    }
+
+    function validTenantClaimUnitUpdate(unitId) {
+      return isFreshTenantClaim() &&
+        resource.data.tenantId == null &&
+        resource.data.activeInviteId != null &&
+        request.resource.data.ownerId == resource.data.ownerId &&
+        request.resource.data.propertyId == resource.data.propertyId &&
+        request.resource.data.tenantId == request.auth.uid &&
+        request.resource.data.activeInviteId == null &&
+        request.resource.data.status == 'occupied' &&
+        existsAfter(invitePath(resource.data.activeInviteId)) &&
+        getAfter(invitePath(resource.data.activeInviteId)).data.status == 'claimed' &&
+        getAfter(invitePath(resource.data.activeInviteId)).data.claimedByUid == request.auth.uid &&
+        getAfter(invitePath(resource.data.activeInviteId)).data.unitId == unitId &&
+        getAfter(invitePath(resource.data.activeInviteId)).data.ownerId == resource.data.ownerId;
+    }
+
+    function validTenantCreate() {
+      return isSelf(request.resource.data.userId) &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.status == 'active' &&
+        existsAfter(unitPath(request.resource.data.unitId)) &&
+        getAfter(unitPath(request.resource.data.unitId)).data.tenantId == request.auth.uid &&
+        getAfter(unitPath(request.resource.data.unitId)).data.ownerId == request.resource.data.ownerId &&
+        getAfter(unitPath(request.resource.data.unitId)).data.propertyId == request.resource.data.propertyId;
+    }
+
+    function validCommissionLedger() {
+      return
+        request.resource.data.grossAmount is number &&
+        request.resource.data.commissionRate is number &&
+        request.resource.data.agencyFeeAmount is number &&
+        request.resource.data.ownerNetAmount is number &&
+        request.resource.data.commissionRate >= 0 &&
+        request.resource.data.commissionRate <= 1 &&
+        request.resource.data.ownerNetAmount == request.resource.data.grossAmount - request.resource.data.agencyFeeAmount &&
+        (
+          request.resource.data.agencyId == null
+            ? request.resource.data.commissionRate == 0 && request.resource.data.agencyFeeAmount == 0
+            : exists(agencyPath(request.resource.data.agencyId)) &&
+              get(agencyPath(request.resource.data.agencyId)).data.commissionType == 'percentage' &&
+              get(agencyPath(request.resource.data.agencyId)).data.commissionRate == request.resource.data.commissionRate &&
+              request.resource.data.agencyFeeAmount == request.resource.data.grossAmount * request.resource.data.commissionRate
+        );
+    }
+
+    function validPaymentSeed() {
+      return isSelf(request.resource.data.tenantId) &&
+        validCommissionLedger() &&
+        request.resource.data.paymentStatus == 'pending' &&
+        request.resource.data.paymentMethod == null &&
+        request.resource.data.receiptId == null &&
+        existsAfter(tenantPath(request.resource.data.tenantId)) &&
+        getAfter(tenantPath(request.resource.data.tenantId)).data.unitId == request.resource.data.unitId &&
+        getAfter(tenantPath(request.resource.data.tenantId)).data.ownerId == request.resource.data.ownerId &&
+        getAfter(tenantPath(request.resource.data.tenantId)).data.propertyId == request.resource.data.propertyId &&
+        existsAfter(unitPath(request.resource.data.unitId)) &&
+        getAfter(unitPath(request.resource.data.unitId)).data.tenantId == request.auth.uid;
+    }
+
+    function validPaymentCompletion(paymentId) {
+      return isCurrentTenant(resource.data.tenantId) &&
+        resource.data.paymentStatus in ['pending', 'late'] &&
+        request.resource.data.paymentStatus == 'paid' &&
+        request.resource.data.tenantId == resource.data.tenantId &&
+        request.resource.data.ownerId == resource.data.ownerId &&
+        request.resource.data.agencyId == resource.data.agencyId &&
+        request.resource.data.commissionRate == resource.data.commissionRate &&
+        request.resource.data.agencyFeeAmount == resource.data.agencyFeeAmount &&
+        request.resource.data.ownerNetAmount == resource.data.ownerNetAmount &&
+        request.resource.data.grossAmount == resource.data.grossAmount &&
+        request.resource.data.unitId == resource.data.unitId &&
+        request.resource.data.propertyId == resource.data.propertyId &&
+        request.resource.data.receiptId != null &&
+        existsAfter(receiptPath(request.resource.data.receiptId)) &&
+        getAfter(receiptPath(request.resource.data.receiptId)).data.paymentId == paymentId &&
+        getAfter(receiptPath(request.resource.data.receiptId)).data.tenantId == request.auth.uid &&
+        getAfter(receiptPath(request.resource.data.receiptId)).data.ownerId == resource.data.ownerId &&
+        getAfter(receiptPath(request.resource.data.receiptId)).data.unitId == resource.data.unitId;
+    }
+
+    match /users/{userId} {
+      allow get: if isSelf(userId);
+      allow list: if false;
+      allow create, update: if false;
+      allow delete: if false;
+    }
+
+    match /owners/{ownerId} {
+      allow get: if canReadOwner(ownerId);
+      allow list: if isCurrentOwner(ownerId);
+      allow create, update: if false;
+      allow delete: if false;
+    }
+
+    match /properties/{propertyId} {
+      allow get, list: if isCurrentOwner(resource.data.ownerId) || canTenantReadProperty(propertyId);
+      allow create, update: if false;
+      allow delete: if false;
+    }
+
+    match /units/{unitId} {
+      allow get, list: if isCurrentOwner(resource.data.ownerId) || isCurrentTenant(resource.data.tenantId);
+      allow create, update: if false;
+      allow delete: if false;
+    }
+
+    match /tenants/{tenantId} {
+      allow get: if isSelf(tenantId) || isCurrentOwner(resource.data.ownerId);
+      allow list: if isCurrentOwner(resource.data.ownerId);
+      allow create: if false;
+      allow update, delete: if false;
+    }
+
+    match /ownerAccessInvites/{inviteId} {
+      allow get: if false;
+      allow list, create, update, delete: if false;
+    }
+
+    match /legalDocuments/{documentId} {
+      allow get, list, create, update, delete: if false;
+    }
+
+    match /userTermsAcceptances/{userId} {
+      allow get, list, create, update, delete: if false;
+    }
+
+    match /agencies/{agencyId} {
+      allow get: if false;
+      allow list, create, update, delete: if false;
+    }
+
+    match /tenantInvites/{inviteId} {
+      allow get: if isCurrentOwner(resource.data.ownerId) || canTenantReadInvite();
+      allow list: if false;
+      allow create, update: if false;
+      allow delete: if false;
+    }
+
+    match /rentPayments/{paymentId} {
+      allow get, list: if isCurrentOwner(resource.data.ownerId) || isCurrentTenant(resource.data.tenantId);
+      allow create, update: if false;
+      allow delete: if false;
+    }
+
+    match /receipts/{receiptId} {
+      allow get, list: if isCurrentOwner(resource.data.ownerId) || isCurrentTenant(resource.data.tenantId);
+      allow create: if false;
+      allow update, delete: if false;
+    }
+
+    match /supportRequests/{requestId} {
+      allow get, list, create, update, delete: if false;
+    }
+
+    match /notifications/{notificationId} {
+      allow get, list: if currentUserExists() &&
+        (
+          resource.data.userId == request.auth.uid ||
+          (
+            currentUser().role == 'agency_admin' &&
+            currentUser().status == 'active' &&
+            resource.data.role == 'agency_admin' &&
+            resource.data.agencyId == currentUser().agencyId
+          )
+        );
+      allow create, update, delete: if false;
+    }
+
+    match /auditLogs/{auditLogId} {
+      allow get, list: if currentUserExists() &&
+        currentUser().role == 'agency_admin' &&
+        currentUser().status == 'active' &&
+        resource.data.agencyId == currentUser().agencyId;
+      allow create, update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

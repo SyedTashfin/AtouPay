@@ -25,12 +25,17 @@ export function PaymentCard({
   onPress,
 }: PaymentCardProps) {
   const Wrapper = onPress ? Pressable : View;
+  const ownerNetAmount = payment.ownerNetAmount ?? payment.amount;
+  const agencyFeeAmount = payment.agencyFeeAmount ?? 0;
 
   return (
     <Wrapper
       {...(onPress
         ? {
-            accessibilityHint: 'Ouvre le détail et le paiement simulé du loyer',
+            accessibilityHint:
+              payment.status === 'paid' && payment.receiptId
+                ? 'Ouvre le reçu lié à ce paiement'
+                : 'Ouvre le détail et le paiement simulé du loyer',
             accessibilityLabel: `Paiement ${formatMonthLabel(payment.monthKey)} ${propertyName}`,
             accessibilityRole: 'button' as const,
             onPress,
@@ -41,6 +46,11 @@ export function PaymentCard({
         <View style={styles.copy}>
           <Text style={styles.month}>{formatMonthLabel(payment.monthKey)}</Text>
           <Text style={styles.amount}>{formatCurrency(payment.amount)}</Text>
+          {tenantName && ownerNetAmount !== payment.amount ? (
+            <Text style={styles.netAmount}>
+              {`Net propriétaire ${formatCurrency(ownerNetAmount)}`}
+            </Text>
+          ) : null}
         </View>
         <View style={styles.meta}>
           <StatusPill status={payment.status} type="payment" />
@@ -52,6 +62,11 @@ export function PaymentCard({
         <View style={styles.details}>
           <Text style={styles.property}>{propertyName}</Text>
           {tenantName ? <Text style={styles.secondary}>{tenantName}</Text> : null}
+          {tenantName && agencyFeeAmount > 0 ? (
+            <Text style={styles.secondary}>
+              {`Commission agence ${formatCurrency(agencyFeeAmount)}`}
+            </Text>
+          ) : null}
           <Text style={styles.secondary}>
             {payment.status === 'paid' && payment.provider
               ? `Payé via ${payment.provider}`
@@ -66,13 +81,13 @@ export function PaymentCard({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceGlass,
+    borderRadius: radius.xl,
     borderWidth: 1,
     borderColor: colors.border,
     gap: spacing.sm,
     padding: spacing.sm,
-    ...shadows.card,
+    ...shadows.glass,
   },
   pressed: {
     opacity: 0.88,
@@ -95,6 +110,10 @@ const styles = StyleSheet.create({
   amount: {
     color: colors.text,
     ...typography.subheading,
+  },
+  netAmount: {
+    color: colors.textMuted,
+    ...typography.caption,
   },
   meta: {
     alignItems: 'flex-end',

@@ -65,8 +65,8 @@ export function SummaryCard({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceGlass,
+    borderRadius: radius.xl,
     borderWidth: 1,
     borderColor: colors.border,
     flexDirection: 'row',
@@ -74,7 +74,7 @@ const styles = StyleSheet.create({
     minHeight: 132,
     overflow: 'hidden',
     padding: spacing.sm,
-    ...shadows.card,
+    ...shadows.glass,
   },
   compactCard: {
     minHeight: 112,
@@ -118,7 +118,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   progressTrack: {
-    backgroundColor: colors.surfaceMuted,
+    backgroundColor: 'rgba(16, 32, 24, 0.08)',
     borderRadius: radius.pill,
     height: 10,
     overflow: 'hidden',

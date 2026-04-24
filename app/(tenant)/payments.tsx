@@ -1,5 +1,6 @@
-import { FlatList, SafeAreaView, ScrollView, StyleSheet, View } from 'react-native';
+import { FlatList, ScrollView, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FilterChip } from '@/src/components/FilterChip';
 import { ListEmptyState } from '@/src/components/ListEmptyState';
@@ -24,12 +25,14 @@ export default function TenantPaymentsScreen() {
   const {
     getPropertyById,
     setTenantPaymentsFilter,
+    tenantAssignmentRequired,
     tenantPayments,
     tenantPaymentsFilter,
     tenantUser,
   } = useAppContext();
 
-  const property = getPropertyById(tenantUser.propertyId);
+  const property = tenantUser.propertyId ? getPropertyById(tenantUser.propertyId) : undefined;
+  const propertyLabel = property ? [property.name, property.unitLabel].filter(Boolean).join(' • ') : undefined;
 
   const filteredPayments = tenantPayments.filter((payment) =>
     tenantPaymentsFilter === 'all' ? true : payment.status === tenantPaymentsFilter,
@@ -53,8 +56,12 @@ export default function TenantPaymentsScreen() {
         keyExtractor={(item) => item.id}
         ListEmptyComponent={
           <ListEmptyState
-            description="Aucun paiement ne correspond au filtre sélectionné."
-            title="Aucun paiement"
+            description={
+              tenantAssignmentRequired
+                ? "Rattachez d'abord ce compte à une unité via une invitation propriétaire pour afficher les loyers."
+                : 'Aucun paiement ne correspond au filtre sélectionné.'
+            }
+            title={tenantAssignmentRequired ? 'Aucune unité attribuée' : 'Aucun paiement'}
           />
         }
         ListHeaderComponent={
@@ -107,12 +114,14 @@ export default function TenantPaymentsScreen() {
         renderItem={({ item }) => (
           <PaymentCard
             onPress={
-              item.status !== 'paid'
-                ? () => router.push(`/(tenant)/pay-rent?paymentId=${item.id}`)
-                : undefined
+              item.status === 'paid' && item.receiptId
+                ? () => router.push(`/receipt/${item.receiptId}` as never)
+                : item.status !== 'paid'
+                  ? () => router.push(`/(tenant)/pay-rent?paymentId=${item.id}`)
+                  : undefined
             }
             payment={item}
-            propertyName={property?.name ?? 'Votre logement'}
+            propertyName={propertyLabel ?? 'Votre logement'}
           />
         )}
         showsVerticalScrollIndicator={false}

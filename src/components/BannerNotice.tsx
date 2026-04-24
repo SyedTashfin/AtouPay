@@ -25,21 +25,21 @@ const toneStyles: Record<
   }
 > = {
   error: {
-    backgroundColor: colors.dangerSoft,
-    borderColor: '#F1CACA',
+    backgroundColor: 'rgba(251, 231, 229, 0.88)',
+    borderColor: 'rgba(169, 61, 61, 0.18)',
     icon: 'alert-circle',
     iconColor: colors.danger,
     textColor: colors.danger,
   },
   info: {
-    backgroundColor: colors.primarySoft,
+    backgroundColor: 'rgba(223, 244, 234, 0.88)',
     borderColor: colors.border,
     icon: 'info',
     iconColor: colors.primaryDark,
     textColor: colors.primaryDark,
   },
   success: {
-    backgroundColor: colors.successSoft,
+    backgroundColor: 'rgba(226, 245, 235, 0.9)',
     borderColor: colors.border,
     icon: 'check-circle',
     iconColor: colors.success,
@@ -88,7 +88,7 @@ export function BannerNotice({
 const styles = StyleSheet.create({
   container: {
     alignItems: 'flex-start',
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
     flexDirection: 'row',
     gap: spacing.sm,
@@ -115,4 +115,3 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
 });
-

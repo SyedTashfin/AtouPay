@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors } from '@/src/theme/colors';
 import { radius } from '@/src/theme/radius';
+import { shadows } from '@/src/theme/shadows';
 import { spacing } from '@/src/theme/spacing';
 import { typography } from '@/src/theme/typography';
 
@@ -46,11 +47,12 @@ export function InfoRow({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
+    backgroundColor: colors.surfaceGlass,
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
     padding: spacing.sm,
+    ...shadows.soft,
   },
   row: {
     alignItems: 'center',
@@ -60,6 +62,7 @@ const styles = StyleSheet.create({
   copy: {
     flex: 1,
     gap: 4,
+    minWidth: 0,
   },
   label: {
     color: colors.textMuted,
@@ -67,10 +70,10 @@ const styles = StyleSheet.create({
   },
   value: {
     color: colors.text,
+    flexShrink: 1,
     ...typography.bodyStrong,
   },
   pressed: {
     opacity: 0.85,
   },
 });
-

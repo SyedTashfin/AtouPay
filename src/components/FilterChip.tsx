@@ -40,11 +40,11 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
   },
   selected: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    backgroundColor: colors.primaryDark,
+    borderColor: colors.primaryDark,
   },
   unselected: {
-    backgroundColor: colors.surface,
+    backgroundColor: colors.surfaceGlass,
     borderColor: colors.border,
   },
   pressed: {

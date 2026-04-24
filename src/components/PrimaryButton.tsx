@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 
 import { colors } from '@/src/theme/colors';
 import { radius } from '@/src/theme/radius';
+import { shadows } from '@/src/theme/shadows';
 import { spacing } from '@/src/theme/spacing';
 import { typography } from '@/src/theme/typography';
 
@@ -12,6 +13,7 @@ interface PrimaryButtonProps {
   label: string;
   onPress: () => void;
   disabled?: boolean;
+  accessibilityLabel?: string;
   accessibilityHint?: string;
   variant?: ButtonVariant;
   icon?: ReactNode;
@@ -22,6 +24,7 @@ export function PrimaryButton({
   label,
   onPress,
   disabled = false,
+  accessibilityLabel,
   accessibilityHint,
   variant = 'primary',
   icon,
@@ -32,7 +35,7 @@ export function PrimaryButton({
   return (
     <Pressable
       accessibilityHint={accessibilityHint}
-      accessibilityLabel={label}
+      accessibilityLabel={accessibilityLabel ?? label}
       accessibilityRole="button"
       accessibilityState={{
         busy: loading,
@@ -62,10 +65,10 @@ export function PrimaryButton({
 const styles = StyleSheet.create({
   base: {
     alignItems: 'center',
-    borderRadius: radius.md,
+    borderRadius: radius.pill,
     borderWidth: 1,
     justifyContent: 'center',
-    minHeight: 56,
+    minHeight: 54,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.sm,
   },
@@ -79,22 +82,24 @@ const styles = StyleSheet.create({
     ...typography.bodyStrong,
   },
   pressed: {
-    opacity: 0.9,
+    opacity: 0.86,
+    transform: [{ scale: 0.99 }],
   },
 });
 
 const variantStyles = StyleSheet.create({
   primary: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    backgroundColor: colors.primaryDark,
+    borderColor: colors.primaryDark,
+    ...shadows.button,
   },
   secondary: {
-    backgroundColor: colors.surface,
-    borderColor: colors.borderStrong,
+    backgroundColor: colors.surfaceGlass,
+    borderColor: colors.border,
   },
   ghost: {
     backgroundColor: colors.surfaceMuted,
-    borderColor: colors.surfaceMuted,
+    borderColor: colors.border,
   },
 });
 

@@ -6,6 +6,7 @@ import { colors } from '@/src/theme/colors';
 import { radius } from '@/src/theme/radius';
 import { spacing } from '@/src/theme/spacing';
 import { typography } from '@/src/theme/typography';
+import { BuildVariantBadge } from '@/src/components/BuildVariantBadge';
 
 interface ScreenHeaderProps {
   title: string;
@@ -40,6 +41,7 @@ export function ScreenHeader({
           <View style={styles.copy}>
             <Text style={styles.title}>{title}</Text>
             {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+            <BuildVariantBadge />
           </View>
         </View>
         {rightAccessory ? <View style={styles.right}>{rightAccessory}</View> : null}
@@ -66,7 +68,7 @@ const styles = StyleSheet.create({
   },
   backButton: {
     alignItems: 'center',
-    backgroundColor: colors.surface,
+    backgroundColor: colors.surfaceGlass,
     borderRadius: radius.pill,
     borderWidth: 1,
     borderColor: colors.border,

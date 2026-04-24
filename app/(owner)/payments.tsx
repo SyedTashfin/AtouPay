@@ -1,4 +1,6 @@
-import { FlatList, SafeAreaView, ScrollView, StyleSheet, View } from 'react-native';
+import { router } from 'expo-router';
+import { FlatList, ScrollView, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FilterChip } from '@/src/components/FilterChip';
 import { ListEmptyState } from '@/src/components/ListEmptyState';
@@ -33,13 +35,19 @@ export default function OwnerPaymentsScreen() {
   const currentMonthPayments = ownerPayments.filter((payment) => payment.monthKey === currentMonthKey);
   const totalCollected = currentMonthPayments
     .filter((payment) => payment.status === 'paid')
-    .reduce((total, payment) => total + payment.amount, 0);
+    .reduce((total, payment) => total + (payment.ownerNetAmount ?? payment.amount), 0);
+  const totalGrossCollected = currentMonthPayments
+    .filter((payment) => payment.status === 'paid')
+    .reduce((total, payment) => total + (payment.grossAmount ?? payment.amount), 0);
+  const totalAgencyFees = currentMonthPayments
+    .filter((payment) => payment.status === 'paid')
+    .reduce((total, payment) => total + (payment.agencyFeeAmount ?? 0), 0);
   const totalPending = currentMonthPayments
     .filter((payment) => payment.status === 'pending')
-    .reduce((total, payment) => total + payment.amount, 0);
+    .reduce((total, payment) => total + (payment.ownerNetAmount ?? payment.amount), 0);
   const totalLate = currentMonthPayments
     .filter((payment) => payment.status === 'late')
-    .reduce((total, payment) => total + payment.amount, 0);
+    .reduce((total, payment) => total + (payment.ownerNetAmount ?? payment.amount), 0);
 
   const filteredPayments = ownerPayments.filter((payment) => {
     const propertyMatches =
@@ -76,8 +84,9 @@ export default function OwnerPaymentsScreen() {
             <View style={styles.summaryGrid}>
               <SummaryCard
                 compact
+                helper={`Brut ${formatCurrency(totalGrossCollected)} • Commission ${formatCurrency(totalAgencyFees)}`}
                 subtitle="Mois en cours"
-                title="Encaissé"
+                title="Net encaissé"
                 value={formatCurrency(totalCollected)}
               />
               <SummaryCard
@@ -108,7 +117,11 @@ export default function OwnerPaymentsScreen() {
                   {properties.map((property) => (
                     <FilterChip
                       key={property.id}
-                      label={property.name}
+                      label={
+                        property.unitLabel
+                          ? `${property.name} • ${property.unitLabel}`
+                          : property.name
+                      }
                       onPress={() => setOwnerPaymentsFilter({ propertyId: property.id })}
                       selected={ownerPaymentsFilter.propertyId === property.id}
                     />
@@ -136,8 +149,20 @@ export default function OwnerPaymentsScreen() {
         }
         renderItem={({ item }) => (
           <PaymentCard
+            onPress={
+              item.receiptId ? () => router.push(`/receipt/${item.receiptId}` as never) : undefined
+            }
             payment={item}
-            propertyName={getPropertyById(item.propertyId)?.name ?? 'Bien'}
+            propertyName={
+              getPropertyById(item.propertyId)
+                ? [
+                    getPropertyById(item.propertyId)?.name,
+                    getPropertyById(item.propertyId)?.unitLabel,
+                  ]
+                    .filter(Boolean)
+                    .join(' • ')
+                : 'Bien'
+            }
             tenantName={getTenantById(item.tenantId)?.fullName}
           />
         )}

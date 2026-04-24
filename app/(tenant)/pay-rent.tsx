@@ -1,16 +1,17 @@
-import { SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BannerNotice } from '@/src/components/BannerNotice';
 import { ListEmptyState } from '@/src/components/ListEmptyState';
 import { PaymentMethodRow } from '@/src/components/PaymentMethodRow';
+import { PaymentReceiptCard } from '@/src/components/PaymentReceiptCard';
 import { PrimaryButton } from '@/src/components/PrimaryButton';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
 import { StatusPill } from '@/src/components/StatusPill';
 import { useAppContext } from '@/src/context/AppProvider';
-import { PaymentProvider } from '@/src/types';
+import { PaymentProvider, PaymentRecord, ReceiptRecord } from '@/src/types';
 import { colors } from '@/src/theme/colors';
 import { radius } from '@/src/theme/radius';
 import { shadows } from '@/src/theme/shadows';
@@ -34,15 +35,20 @@ export default function PayRentScreen() {
   const [selectedMethod, setSelectedMethod] = useState<PaymentProvider | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const [successPayment, setSuccessPayment] = useState<PaymentRecord | null>(null);
+  const [successReceipt, setSuccessReceipt] = useState<ReceiptRecord | null>(null);
   const insets = useSafeAreaInsets();
 
   const targetPayment =
     tenantPayments.find((payment) => payment.id === paymentId) ?? currentTenantPayment;
   const property = targetPayment ? getPropertyById(targetPayment.propertyId) : undefined;
+  const propertyLabel = property
+    ? [property.name, property.unitLabel].filter(Boolean).join(' • ')
+    : undefined;
 
   if (!targetPayment || !property) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView edges={['top', 'left', 'right']} style={styles.safeArea}>
         <View style={styles.content}>
           <ScreenHeader
             onBackPress={() => router.back()}
@@ -76,30 +82,31 @@ export default function PayRentScreen() {
         return;
       }
 
-      router.replace('/(tenant)/payments');
+      setSuccessPayment(result.payment ?? null);
+      setSuccessReceipt(result.receipt ?? null);
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView edges={['top', 'left', 'right']} style={styles.safeArea}>
       <View style={styles.screen}>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <ScreenHeader
             onBackPress={() => router.back()}
             showBackButton
-            subtitle="Sélectionnez un moyen de paiement pour finaliser le loyer"
+            subtitle="Sélectionnez un moyen de paiement simulé pour finaliser la démonstration"
             title="Payer le loyer"
           />
 
-          {!isHintDismissed('payment-demo') ? (
-            <BannerNotice
-              description="Démo locale: aucun débit réel n'est effectué. La carte bancaire renvoie un échec simulé pour tester la reprise."
-              onDismiss={() => dismissHint('payment-demo')}
-              title="Paiement de démonstration"
-            />
-          ) : null}
+        {!isHintDismissed('payment-demo') ? (
+          <BannerNotice
+            description="Paiement simulé pour démonstration. Aucun débit réel n'est effectué dans cette version. La carte bancaire renvoie un échec simulé pour tester la reprise. La quittance générée par AtouPay reflète uniquement les informations enregistrées dans le système."
+            onDismiss={() => dismissHint('payment-demo')}
+            title="Paiement simulé pour démonstration"
+          />
+        ) : null}
 
           <View style={styles.amountCard}>
             <View style={styles.amountHeader}>
@@ -116,7 +123,7 @@ export default function PayRentScreen() {
             </View>
             <View style={styles.detailRow}>
               <Text style={styles.detailLabel}>Propriété</Text>
-              <Text style={styles.detailValue}>{property.name}</Text>
+              <Text style={styles.detailValue}>{propertyLabel}</Text>
             </View>
             <View style={styles.detailRow}>
               <Text style={styles.detailLabel}>Propriétaire</Text>
@@ -128,23 +135,42 @@ export default function PayRentScreen() {
             </View>
           </View>
 
-          <View style={styles.methodSection}>
-            <Text style={styles.sectionTitle}>Moyen de paiement</Text>
-            <View style={styles.methodList}>
-              {paymentMethods.map((method) => (
-                <PaymentMethodRow
-                  disabled={isSubmitting}
-                  key={method}
-                  method={method}
-                  onPress={() => {
-                    setSelectedMethod(method);
-                    setSubmissionError(null);
-                  }}
-                  selected={selectedMethod === method}
-                />
-              ))}
+          {successPayment ? (
+            <View style={styles.successSection}>
+              <BannerNotice
+                description={
+                  successReceipt
+                    ? `Le paiement simulé a bien été enregistré. Un reçu ${successReceipt.receiptNumber} est maintenant disponible.`
+                    : 'Le paiement simulé a bien été enregistré. Les vues locataire et propriétaire ont été mises à jour.'
+                }
+                title="Confirmation simulée prête pour revue"
+                tone="success"
+              />
+              <PaymentReceiptCard
+                payment={successPayment}
+                propertyName={propertyLabel ?? property.name}
+                receipt={successReceipt ?? undefined}
+              />
             </View>
-          </View>
+          ) : (
+            <View style={styles.methodSection}>
+              <Text style={styles.sectionTitle}>Moyen de paiement</Text>
+              <View style={styles.methodList}>
+                {paymentMethods.map((method) => (
+                  <PaymentMethodRow
+                    disabled={isSubmitting}
+                    key={method}
+                    method={method}
+                    onPress={() => {
+                      setSelectedMethod(method);
+                      setSubmissionError(null);
+                    }}
+                    selected={selectedMethod === method}
+                  />
+                ))}
+              </View>
+            </View>
+          )}
         </ScrollView>
 
         <View
@@ -162,15 +188,59 @@ export default function PayRentScreen() {
             />
           ) : null}
 
-          <PrimaryButton
-            accessibilityHint="Simule un paiement local et met à jour vos écrans de suivi"
-            disabled={alreadyPaid || !selectedMethod}
-            label={
-              alreadyPaid ? 'Loyer déjà réglé' : `Payer ${formatCurrency(targetPayment.amount)}`
-            }
-            loading={isSubmitting}
-            onPress={handleSubmit}
-          />
+          {successPayment ? (
+            <>
+              {successReceipt?.id ? (
+                <PrimaryButton
+                  accessibilityHint="Ouvre le reçu détaillé généré par le backend"
+                  label="Voir le reçu"
+                  onPress={() => {
+                    router.push(`/receipt/${successReceipt.id}` as never);
+                  }}
+                  variant="secondary"
+                />
+              ) : null}
+              <PrimaryButton
+                accessibilityHint="Ouvre l'historique mis à jour après le paiement simulé"
+                label="Voir mes paiements"
+                onPress={() => router.replace('/(tenant)/payments')}
+              />
+              <PrimaryButton
+                accessibilityHint="Revient à l'accueil locataire après la confirmation"
+                label="Retour à l'accueil"
+                onPress={() => router.replace('/(tenant)/home')}
+                variant="secondary"
+              />
+              <PrimaryButton
+                accessibilityHint="Signale un problème sur ce paiement simulé"
+                label="Signaler un problème"
+                onPress={() => {
+                  router.push(`/support?category=payment_problem&paymentId=${targetPayment.id}` as never);
+                }}
+                variant="secondary"
+              />
+            </>
+          ) : (
+            <>
+              <PrimaryButton
+                accessibilityHint="Simule un paiement local et met à jour vos écrans de suivi"
+                disabled={alreadyPaid || !selectedMethod}
+                label={
+                  alreadyPaid ? 'Loyer déjà réglé' : `Payer ${formatCurrency(targetPayment.amount)}`
+                }
+                loading={isSubmitting}
+                onPress={handleSubmit}
+              />
+              <PrimaryButton
+                accessibilityHint="Ouvre l’assistance pour un problème de paiement"
+                label="Besoin d’aide sur ce paiement"
+                onPress={() => {
+                  router.push(`/support?category=payment_problem&paymentId=${targetPayment.id}` as never);
+                }}
+                variant="secondary"
+              />
+            </>
+          )}
         </View>
       </View>
     </SafeAreaView>
@@ -236,6 +306,9 @@ const styles = StyleSheet.create({
     ...typography.bodyStrong,
   },
   methodSection: {
+    gap: spacing.sm,
+  },
+  successSection: {
     gap: spacing.sm,
   },
   sectionTitle: {
