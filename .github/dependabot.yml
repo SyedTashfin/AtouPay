@@ -16,6 +16,17 @@ updates:
       - dependency-name: "*"
         update-types:
           - version-update:semver-major
+      # Expo SDK, React, and React Native upgrades should go through `npx expo install`
+      # and a native QA pass instead of standalone Dependabot PRs.
+      - dependency-name: "expo"
+      - dependency-name: "expo-*"
+      - dependency-name: "@expo/*"
+      - dependency-name: "react"
+      - dependency-name: "react-dom"
+      - dependency-name: "react-native"
+      - dependency-name: "react-native-*"
+      - dependency-name: "@react-native-*/*"
+      - dependency-name: "@types/react"
 
   - package-ecosystem: npm
     directory: /backend
