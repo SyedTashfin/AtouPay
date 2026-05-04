@@ -18,6 +18,11 @@ import type {
   UserTermsAcceptanceDoc,
   UserDoc,
 } from '../domain/types.js';
+import type {
+  OwnerBillingAccount,
+  OwnerBillingInvoice,
+  OwnerBillingPayment,
+} from '../billing/types.js';
 import type { DataRepository, TransactionContext } from './types.js';
 
 type CollectionName =
@@ -26,6 +31,9 @@ type CollectionName =
   | 'auditLogs'
   | 'legalDocuments'
   | 'notifications'
+  | 'ownerBillingAccounts'
+  | 'ownerBillingInvoices'
+  | 'ownerBillingPayments'
   | 'owners'
   | 'ownerAccessInvites'
   | 'properties'
@@ -63,6 +71,10 @@ function createTransactionContext(db: Firestore, transaction: Transaction): Tran
     getOwner: (ownerId) => readDoc<OwnerDoc>(transaction, db, 'owners', ownerId),
     getOwnerAccessInvite: (inviteId) =>
       readDoc<OwnerAccessInviteDoc>(transaction, db, 'ownerAccessInvites', inviteId),
+    getOwnerBillingAccount: (ownerId) =>
+      readDoc<OwnerBillingAccount>(transaction, db, 'ownerBillingAccounts', ownerId),
+    getOwnerBillingInvoice: (invoiceId) =>
+      readDoc<OwnerBillingInvoice>(transaction, db, 'ownerBillingInvoices', invoiceId),
     getInvite: (inviteId) => readDoc<TenantInviteDoc>(transaction, db, 'tenantInvites', inviteId),
     getPayment: (paymentId) => readDoc<RentPaymentDoc>(transaction, db, 'rentPayments', paymentId),
     getProperty: (propertyId) => readDoc<PropertyDoc>(transaction, db, 'properties', propertyId),
@@ -74,6 +86,45 @@ function createTransactionContext(db: Firestore, transaction: Transaction): Tran
     getUserTermsAcceptance: (uid) =>
       readDoc<UserTermsAcceptanceDoc>(transaction, db, 'userTermsAcceptances', uid),
     getUser: (uid) => readDoc<UserDoc>(transaction, db, 'users', uid),
+    listOwnerBillingInvoicesByOwner: async (ownerId) => {
+      const snapshot = await transaction.get(
+        db.collection('ownerBillingInvoices').where('ownerId', '==', ownerId),
+      );
+
+      return snapshot.docs.map((doc) => ({
+        doc: doc.data() as OwnerBillingInvoice,
+        id: doc.id,
+      }));
+    },
+    listPaymentsByUnit: async (unitId) => {
+      const snapshot = await transaction.get(
+        db.collection('rentPayments').where('unitId', '==', unitId),
+      );
+
+      return snapshot.docs.map((doc) => ({
+        doc: doc.data() as RentPaymentDoc,
+        id: doc.id,
+      }));
+    },
+    listUnitsByProperty: async (propertyId) => {
+      const snapshot = await transaction.get(
+        db.collection('units').where('propertyId', '==', propertyId),
+      );
+
+      return snapshot.docs.map((doc) => ({
+        doc: doc.data() as UnitDoc,
+        id: doc.id,
+      }));
+    },
+    deleteProperty: (propertyId) => {
+      transaction.delete(getRef(db, 'properties', propertyId));
+    },
+    deleteUnit: (unitId) => {
+      transaction.delete(getRef(db, 'units', unitId));
+    },
+    deleteOwnerAccessInvite: (inviteId) => {
+      transaction.delete(getRef(db, 'ownerAccessInvites', inviteId));
+    },
     setAgency: (agencyId, agency) => {
       transaction.set(getRef(db, 'agencies', agencyId), agency);
     },
@@ -82,6 +133,15 @@ function createTransactionContext(db: Firestore, transaction: Transaction): Tran
     },
     setLegalTerms: (documentId, terms) => {
       transaction.set(getRef(db, 'legalDocuments', documentId), terms);
+    },
+    setOwnerBillingAccount: (ownerId, account) => {
+      transaction.set(getRef(db, 'ownerBillingAccounts', ownerId), account);
+    },
+    setOwnerBillingInvoice: (invoiceId, invoice) => {
+      transaction.set(getRef(db, 'ownerBillingInvoices', invoiceId), invoice);
+    },
+    setOwnerBillingPayment: (paymentId, payment) => {
+      transaction.set(getRef(db, 'ownerBillingPayments', paymentId), payment);
     },
     setOwnerAccessInvite: (inviteId, invite) => {
       transaction.set(getRef(db, 'ownerAccessInvites', inviteId), invite);
@@ -131,6 +191,12 @@ function createTransactionContext(db: Firestore, transaction: Transaction): Tran
     updateOwnerAccessInvite: (inviteId, patch) => {
       transaction.update(getRef(db, 'ownerAccessInvites', inviteId), patch);
     },
+    updateOwnerBillingAccount: (ownerId, patch) => {
+      transaction.update(getRef(db, 'ownerBillingAccounts', ownerId), patch);
+    },
+    updateOwnerBillingInvoice: (invoiceId, patch) => {
+      transaction.update(getRef(db, 'ownerBillingInvoices', invoiceId), patch);
+    },
     updateInvite: (inviteId, patch) => {
       transaction.update(getRef(db, 'tenantInvites', inviteId), patch);
     },
@@ -139,6 +205,9 @@ function createTransactionContext(db: Firestore, transaction: Transaction): Tran
     },
     updatePayment: (paymentId, patch) => {
       transaction.update(getRef(db, 'rentPayments', paymentId), patch);
+    },
+    updateProperty: (propertyId, patch) => {
+      transaction.update(getRef(db, 'properties', propertyId), patch);
     },
     updateSupportRequest: (requestId, patch) => {
       transaction.update(getRef(db, 'supportRequests', requestId), patch);
@@ -227,6 +296,24 @@ export function createFirestoreRepository(db: Firestore): DataRepository {
       }
 
       return snapshot.data() as NotificationDoc;
+    },
+    async getOwner(ownerId) {
+      const snapshot = await getRef(db, 'owners', ownerId).get();
+
+      if (!snapshot.exists) {
+        return null;
+      }
+
+      return snapshot.data() as OwnerDoc;
+    },
+    async getOwnerBillingAccount(ownerId) {
+      const snapshot = await getRef(db, 'ownerBillingAccounts', ownerId).get();
+
+      if (!snapshot.exists) {
+        return null;
+      }
+
+      return snapshot.data() as OwnerBillingAccount;
     },
     async getPayment(paymentId) {
       const snapshot = await getRef(db, 'rentPayments', paymentId).get();
@@ -341,6 +428,28 @@ export function createFirestoreRepository(db: Firestore): DataRepository {
 
       return snapshot.docs.map((doc) => ({
         doc: doc.data() as NotificationDoc,
+        id: doc.id,
+      }));
+    },
+    async listOwnerBillingAccountsByAgency(agencyId) {
+      const snapshot = await db
+        .collection('ownerBillingAccounts')
+        .where('agencyId', '==', agencyId)
+        .get();
+
+      return snapshot.docs.map((doc) => ({
+        doc: doc.data() as OwnerBillingAccount,
+        id: doc.id,
+      }));
+    },
+    async listOwnerBillingInvoicesByOwner(ownerId) {
+      const snapshot = await db
+        .collection('ownerBillingInvoices')
+        .where('ownerId', '==', ownerId)
+        .get();
+
+      return snapshot.docs.map((doc) => ({
+        doc: doc.data() as OwnerBillingInvoice,
         id: doc.id,
       }));
     },

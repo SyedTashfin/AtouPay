@@ -7,6 +7,11 @@ import { loadConfig } from '../src/config/env.js';
 import { initializeFirebaseAdmin } from '../src/lib/firebase-admin.js';
 import { currentMonthDueDate, currentMonthKey, hashInviteCode, hashStableValue } from '../src/lib/invite.js';
 import type { AuthProvider, Role, UserStatus } from '../src/domain/types.js';
+import {
+  OWNER_ACCOUNT_FEE_AMOUNT,
+  OWNER_ACCOUNT_FEE_CURRENCY,
+  OWNER_ACCOUNT_FEE_INTERVAL_DAYS,
+} from '../src/billing/billingConstants.js';
 
 const agencyId = 'agency-client-demo';
 const propertyId = 'property-client-demo-main';
@@ -140,13 +145,15 @@ function buildUserDoc(input: {
   };
 }
 
-function calculateCommission(grossAmount: number, commissionRate: number) {
-  const agencyFeeAmount = Math.round(grossAmount * commissionRate);
-
+function calculateZeroRentLedger(grossAmount: number) {
   return {
-    agencyFeeAmount,
-    commissionRate,
-    ownerNetAmount: Math.max(0, grossAmount - agencyFeeAmount),
+    agencyFeeAmount: 0,
+    commissionRate: 0,
+    ownerNetAmount: grossAmount,
+    ownerReceivableAmount: grossAmount,
+    platformRentFeeAmount: 0,
+    rentAmount: grossAmount,
+    tenantFeeAmount: 0,
   };
 }
 
@@ -198,9 +205,8 @@ async function main() {
   const nowIso = now.toISOString();
   const monthKey = currentMonthKey(now);
   const dueDate = currentMonthDueDate(now);
-  const commissionRate = 0.1;
   const rentAmount = 150000;
-  const commission = calculateCommission(rentAmount, commissionRate);
+  const rentLedger = calculateZeroRentLedger(rentAmount);
   const passwordInput = password ? { password } : {};
 
   const [agencyAuth, ownerAuth, tenantAuth, blockedOwnerAuth, newTenantAuth] = await Promise.all([
@@ -234,10 +240,13 @@ async function main() {
   batch.delete(db.collection('owners').doc(blockedOwnerAuth.uid));
 
   batch.set(db.collection('agencies').doc(agencyId), {
-    commissionRate,
+    commissionRate: 0,
     commissionType: 'percentage',
     createdAt: nowIso,
     displayName: 'Agence Client Démo',
+    ownerAccountFeeAmount: OWNER_ACCOUNT_FEE_AMOUNT,
+    ownerAccountFeeCurrency: OWNER_ACCOUNT_FEE_CURRENCY,
+    ownerAccountFeeIntervalDays: OWNER_ACCOUNT_FEE_INTERVAL_DAYS,
     updatedAt: nowIso,
   });
 
@@ -386,22 +395,26 @@ async function main() {
   });
 
   batch.set(db.collection('rentPayments').doc(paymentId), {
-    agencyFeeAmount: commission.agencyFeeAmount,
+    agencyFeeAmount: rentLedger.agencyFeeAmount,
     agencyId,
-    commissionRate: commission.commissionRate,
+    commissionRate: rentLedger.commissionRate,
     createdAt: nowIso,
     dueDate,
-    grossAmount: rentAmount,
+    grossAmount: rentLedger.rentAmount,
     monthKey,
     ownerId: ownerAuth.uid,
-    ownerNetAmount: commission.ownerNetAmount,
+    ownerNetAmount: rentLedger.ownerNetAmount,
+    ownerReceivableAmount: rentLedger.ownerReceivableAmount,
     paidAt: null,
     paymentMethod: null,
     paymentStatus: 'pending',
+    platformRentFeeAmount: rentLedger.platformRentFeeAmount,
     propertyId,
     providerReference: null,
     receiptId: null,
+    rentAmount: rentLedger.rentAmount,
     tenantId: tenantAuth.uid,
+    tenantFeeAmount: rentLedger.tenantFeeAmount,
     unitId: occupiedUnitId,
     updatedAt: nowIso,
   });

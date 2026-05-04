@@ -1,6 +1,6 @@
 import * as Clipboard from 'expo-clipboard';
 import { useEffect, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BannerNotice } from '@/src/components/BannerNotice';
@@ -13,6 +13,7 @@ import { AuthField } from '@/src/components/auth/AuthField';
 import { InviteType, OwnerAccessInviteSummary } from '@/src/types';
 import {
   createOwnerAccessInviteViaBackend,
+  deleteOwnerAccessInviteViaBackend,
   listOwnerAccessInvitesViaBackend,
   mapBackendErrorToMessage,
   revokeOwnerAccessInviteViaBackend,
@@ -31,15 +32,20 @@ interface FeedbackState {
 
 function InviteRow({
   invite,
+  isDeleting,
   onCopy,
+  onDelete,
   onRevoke,
 }: {
   invite: OwnerAccessInviteSummary;
+  isDeleting?: boolean;
   onCopy: (value: string, label: string) => void;
+  onDelete: (inviteId: string) => void;
   onRevoke: (inviteId: string) => void;
 }) {
   const inviteValue = invite.ownerInviteCode ?? invite.inviteLink;
   const inviteAccessibilityName = invite.email ?? invite.id.slice(0, 8);
+  const canDelete = invite.status === 'revoked' || invite.status === 'expired';
   const missingValueMessage =
     invite.status === 'pending'
       ? 'Code non conservé après rechargement. Révoquez puis recréez l’invitation si vous devez la repartager.'
@@ -80,6 +86,16 @@ function InviteRow({
             variant="ghost"
           />
         ) : null}
+        {canDelete ? (
+          <PrimaryButton
+            accessibilityLabel={`Supprimer l’invitation propriétaire ${inviteAccessibilityName}`}
+            accessibilityHint="Retire cette invitation révoquée ou expirée de la liste agence"
+            label="Supprimer"
+            loading={isDeleting}
+            onPress={() => onDelete(invite.id)}
+            variant="ghost"
+          />
+        ) : null}
       </View>
     </View>
   );
@@ -90,6 +106,7 @@ export default function AgencyInvitesScreen() {
   const [inviteType, setInviteType] = useState<InviteType>('code');
   const [email, setEmail] = useState('');
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
+  const [deletingInviteId, setDeletingInviteId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const loadInvites = async () => {
@@ -170,6 +187,46 @@ export default function AgencyInvitesScreen() {
         title: 'Révocation impossible',
         tone: 'error',
       });
+    }
+  };
+
+  const handleDelete = (inviteId: string) => {
+    Alert.alert(
+      'Supprimer l’invitation',
+      'Cette action retire uniquement une invitation déjà révoquée ou expirée. Les invitations utilisées restent conservées pour l’historique.',
+      [
+        { style: 'cancel', text: 'Annuler' },
+        {
+          style: 'destructive',
+          text: 'Supprimer',
+          onPress: () => {
+            void deleteInvite(inviteId);
+          },
+        },
+      ],
+    );
+  };
+
+  const deleteInvite = async (inviteId: string) => {
+    setFeedback(null);
+    setDeletingInviteId(inviteId);
+
+    try {
+      await deleteOwnerAccessInviteViaBackend(inviteId);
+      setInvites((currentInvites) => currentInvites.filter((invite) => invite.id !== inviteId));
+      setFeedback({
+        description: 'L’invitation a été retirée de la liste agence.',
+        title: 'Invitation supprimée',
+        tone: 'success',
+      });
+    } catch (error) {
+      setFeedback({
+        description: mapBackendErrorToMessage(error, "L’invitation n’a pas pu être supprimée."),
+        title: 'Suppression impossible',
+        tone: 'error',
+      });
+    } finally {
+      setDeletingInviteId(null);
     }
   };
 
@@ -256,7 +313,13 @@ export default function AgencyInvitesScreen() {
           </View>
         }
         renderItem={({ item }) => (
-          <InviteRow invite={item} onCopy={handleCopy} onRevoke={handleRevoke} />
+          <InviteRow
+            invite={item}
+            isDeleting={deletingInviteId === item.id}
+            onCopy={handleCopy}
+            onDelete={handleDelete}
+            onRevoke={handleRevoke}
+          />
         )}
         showsVerticalScrollIndicator={false}
       />

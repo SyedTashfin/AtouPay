@@ -1,4 +1,4 @@
-import { Link } from 'expo-router';
+import { Link, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text } from 'react-native';
 
@@ -9,6 +9,7 @@ import { AuthCard } from '@/src/components/auth/AuthCard';
 import { AuthField } from '@/src/components/auth/AuthField';
 import { AuthScreen } from '@/src/components/auth/AuthScreen';
 import { useSession } from '@/src/context/SessionProvider';
+import { useI18n } from '@/src/i18n/I18nProvider';
 import {
   getFirebaseAuthUnavailableMessage,
   isFirebaseAuthAvailable,
@@ -19,12 +20,14 @@ import { typography } from '@/src/theme/typography';
 import { isValidEmail } from '@/src/utils/auth';
 
 export default function ForgotPasswordScreen() {
+  const { role } = useLocalSearchParams<{ role?: string }>();
   const [email, setEmail] = useState('');
   const [emailError, setEmailError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const { clearAuthDebug, reportAuthEvent } = useSession();
+  const { copy } = useI18n();
 
   const firebaseAvailable = isFirebaseAuthAvailable();
   const firebaseUnavailableMessage = getFirebaseAuthUnavailableMessage();
@@ -71,6 +74,13 @@ export default function ForgotPasswordScreen() {
     }
   };
 
+  const backHref =
+    role === 'owner'
+      ? '/auth/owner'
+      : role === 'tenant'
+        ? '/auth/tenant'
+        : '/auth';
+
   return (
     <AuthScreen
       subtitle="Envoyez un e-mail de réinitialisation pour récupérer l’accès à votre compte ATouPay."
@@ -99,7 +109,7 @@ export default function ForgotPasswordScreen() {
       />
 
       <AuthCard
-        description="Le lien est envoyé par Firebase Authentication. Les paiements restent simulés dans cette application."
+        description="Le lien est envoyé par Firebase Authentication."
         title="Réinitialisation">
         {!firebaseAvailable && firebaseUnavailableMessage ? (
           <BannerNotice
@@ -144,15 +154,15 @@ export default function ForgotPasswordScreen() {
           onPress={handleSubmit}
         />
 
-        <Link href="/auth/login" asChild>
+        <Link href={backHref} asChild>
           <Pressable accessibilityRole="button" style={({ pressed }) => pressed && styles.pressed}>
-            <Text style={styles.linkText}>Retour à la connexion</Text>
+            <Text style={styles.linkText}>{copy('Retour à la connexion')}</Text>
           </Pressable>
         </Link>
 
         <Link href="/support?mode=recovery" asChild>
           <Pressable accessibilityRole="button" style={({ pressed }) => pressed && styles.pressed}>
-            <Text style={styles.linkText}>Besoin d’une récupération assistée ?</Text>
+            <Text style={styles.linkText}>{copy('Besoin d’une récupération assistée ?')}</Text>
           </Pressable>
         </Link>
       </AuthCard>

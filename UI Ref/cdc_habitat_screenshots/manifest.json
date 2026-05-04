@@ -1,0 +1,122 @@
+[
+  {
+    "source": "app_store",
+    "file": "/tmp/cdc_habitat_screenshots/app_store/app_store_01.jpg",
+    "size": [
+      1242,
+      2208
+    ]
+  },
+  {
+    "source": "app_store",
+    "file": "/tmp/cdc_habitat_screenshots/app_store/app_store_02.jpg",
+    "size": [
+      1242,
+      2208
+    ]
+  },
+  {
+    "source": "app_store",
+    "file": "/tmp/cdc_habitat_screenshots/app_store/app_store_03.jpg",
+    "size": [
+      1242,
+      2208
+    ]
+  },
+  {
+    "source": "app_store",
+    "file": "/tmp/cdc_habitat_screenshots/app_store/app_store_04.jpg",
+    "size": [
+      1242,
+      2208
+    ]
+  },
+  {
+    "source": "app_store",
+    "file": "/tmp/cdc_habitat_screenshots/app_store/app_store_05.jpg",
+    "size": [
+      1242,
+      2208
+    ]
+  },
+  {
+    "source": "google_play",
+    "file": "/tmp/cdc_habitat_screenshots/google_play/google_play_01.jpg",
+    "size": [
+      333,
+      592
+    ]
+  },
+  {
+    "source": "google_play",
+    "file": "/tmp/cdc_habitat_screenshots/google_play/google_play_02.jpg",
+    "size": [
+      334,
+      592
+    ]
+  },
+  {
+    "source": "google_play",
+    "file": "/tmp/cdc_habitat_screenshots/google_play/google_play_03.jpg",
+    "size": [
+      332,
+      592
+    ]
+  },
+  {
+    "source": "google_play",
+    "file": "/tmp/cdc_habitat_screenshots/google_play/google_play_04.jpg",
+    "size": [
+      333,
+      592
+    ]
+  },
+  {
+    "source": "google_play",
+    "file": "/tmp/cdc_habitat_screenshots/google_play/google_play_05.jpg",
+    "size": [
+      333,
+      592
+    ]
+  },
+  {
+    "source": "apkpure_mirror",
+    "file": "/tmp/cdc_habitat_screenshots/apkpure_mirror/apkpure_01.jpg",
+    "size": [
+      377,
+      670
+    ]
+  },
+  {
+    "source": "apkpure_mirror",
+    "file": "/tmp/cdc_habitat_screenshots/apkpure_mirror/apkpure_02.jpg",
+    "size": [
+      377,
+      669
+    ]
+  },
+  {
+    "source": "apkpure_mirror",
+    "file": "/tmp/cdc_habitat_screenshots/apkpure_mirror/apkpure_03.jpg",
+    "size": [
+      374,
+      666
+    ]
+  },
+  {
+    "source": "apkpure_mirror",
+    "file": "/tmp/cdc_habitat_screenshots/apkpure_mirror/apkpure_04.jpg",
+    "size": [
+      377,
+      670
+    ]
+  },
+  {
+    "source": "apkpure_mirror",
+    "file": "/tmp/cdc_habitat_screenshots/apkpure_mirror/apkpure_05.jpg",
+    "size": [
+      378,
+      671
+    ]
+  }
+]

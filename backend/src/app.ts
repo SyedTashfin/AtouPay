@@ -11,6 +11,8 @@ import type { DataRepository } from './repositories/types.js';
 import { healthRoutes } from './routes/health.js';
 import { v1Routes } from './routes/v1.js';
 import { BackendService } from './services/backend-service.js';
+import { createInviteEmailService } from './services/email-service.js';
+import { ownerBillingRoutes } from './billing/ownerBillingRoutes.js';
 
 export interface BuildAppOptions {
   authVerifier?: AuthVerifier;
@@ -54,6 +56,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     options.services ??
     new BackendService({
       config,
+      emailService: createInviteEmailService(config, app.log),
       repository,
     });
 
@@ -116,6 +119,30 @@ export async function buildApp(options: BuildAppOptions = {}) {
       });
     }
 
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'statusCode' in error &&
+      typeof error.statusCode === 'number' &&
+      error.statusCode >= 400 &&
+      error.statusCode < 500
+    ) {
+      request.log.info(
+        {
+          err: error,
+          statusCode: error.statusCode,
+        },
+        'request-parse-failed',
+      );
+      return reply.status(error.statusCode).send({
+        error: {
+          code: 'invalid_request',
+          message: 'La requête ne respecte pas le format attendu.',
+        },
+        ok: false,
+      });
+    }
+
     request.log.error(
       {
         err: error,
@@ -143,6 +170,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
 
   await app.register(healthRoutes);
   await app.register(v1Routes);
+  await app.register(ownerBillingRoutes);
 
   return app;
 }

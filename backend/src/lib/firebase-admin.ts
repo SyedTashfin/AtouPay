@@ -18,6 +18,10 @@ function mapProvider(providerId?: string | null): AuthProvider | null {
     return 'password';
   }
 
+  if (providerId === 'phone') {
+    return 'phone';
+  }
+
   return null;
 }
 
@@ -51,21 +55,19 @@ export function createAuthVerifier(app: App): AuthVerifier {
   return {
     async verifyBearerToken(token: string) {
       const decoded = await auth.verifyIdToken(token);
-      const userRecord = await auth.getUser(decoded.uid);
       const primaryProvider =
-        mapProvider(decoded.firebase?.sign_in_provider) ??
-        mapProvider(userRecord.providerData[0]?.providerId);
+        mapProvider(decoded.firebase?.sign_in_provider);
       const providers = uniqueProviders([
         primaryProvider,
-        ...userRecord.providerData.map((provider) => mapProvider(provider.providerId)),
       ]);
 
       return {
-        uid: userRecord.uid,
-        email: userRecord.email ?? decoded.email ?? null,
-        emailVerified: userRecord.emailVerified ?? decoded.email_verified ?? false,
-        displayName: userRecord.displayName ?? decoded.name ?? null,
-        photoUrl: userRecord.photoURL ?? decoded.picture ?? null,
+        uid: decoded.uid,
+        email: decoded.email ?? null,
+        emailVerified: decoded.email_verified ?? false,
+        displayName: decoded.name ?? null,
+        photoUrl: decoded.picture ?? null,
+        phoneNumber: decoded.phone_number ?? null,
         primaryProvider,
         providers,
       };

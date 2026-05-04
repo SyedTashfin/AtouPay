@@ -27,7 +27,13 @@ import { hashInviteCode, hashStableValue } from '../src/lib/invite.js';
 import type { AuthVerifier } from '../src/lib/firebase-admin.js';
 import type { DataRepository, TransactionContext } from '../src/repositories/types.js';
 import { BackendService } from '../src/services/backend-service.js';
+import type { InviteEmailService } from '../src/services/email-service.js';
 import type { AppConfig } from '../src/config/env.js';
+import type {
+  OwnerBillingAccount,
+  OwnerBillingInvoice,
+  OwnerBillingPayment,
+} from '../src/billing/types.js';
 
 type StoreState = {
   agencies: Map<string, AgencyDoc>;
@@ -35,6 +41,9 @@ type StoreState = {
   auditLogs: Map<string, AuditLogDoc>;
   legalDocuments: Map<string, LegalTermsDoc>;
   notifications: Map<string, NotificationDoc>;
+  ownerBillingAccounts: Map<string, OwnerBillingAccount>;
+  ownerBillingInvoices: Map<string, OwnerBillingInvoice>;
+  ownerBillingPayments: Map<string, OwnerBillingPayment>;
   owners: Map<string, { agencyId: string | null; createdAt: string; displayName: string; updatedAt: string; userId: string }>;
   ownerAccessInvites: Map<string, OwnerAccessInviteDoc>;
   properties: Map<string, PropertyDoc>;
@@ -66,6 +75,15 @@ class FakeRepository implements DataRepository {
       auditLogs: seed?.auditLogs ? cloneMap(seed.auditLogs) : new Map(),
       legalDocuments: seed?.legalDocuments ? cloneMap(seed.legalDocuments) : new Map(),
       notifications: seed?.notifications ? cloneMap(seed.notifications) : new Map(),
+      ownerBillingAccounts: seed?.ownerBillingAccounts
+        ? cloneMap(seed.ownerBillingAccounts)
+        : new Map(),
+      ownerBillingInvoices: seed?.ownerBillingInvoices
+        ? cloneMap(seed.ownerBillingInvoices)
+        : new Map(),
+      ownerBillingPayments: seed?.ownerBillingPayments
+        ? cloneMap(seed.ownerBillingPayments)
+        : new Map(),
       owners: seed?.owners ? cloneMap(seed.owners) : new Map(),
       ownerAccessInvites: seed?.ownerAccessInvites ? cloneMap(seed.ownerAccessInvites) : new Map(),
       properties: seed?.properties ? cloneMap(seed.properties) : new Map(),
@@ -124,6 +142,14 @@ class FakeRepository implements DataRepository {
     return this.state.notifications.get(notificationId) ?? null;
   }
 
+  async getOwner(ownerId: string) {
+    return this.state.owners.get(ownerId) ?? null;
+  }
+
+  async getOwnerBillingAccount(ownerId: string) {
+    return this.state.ownerBillingAccounts.get(ownerId) ?? null;
+  }
+
   async getPayment(paymentId: string) {
     return this.state.rentPayments.get(paymentId) ?? null;
   }
@@ -177,6 +203,18 @@ class FakeRepository implements DataRepository {
   async listNotificationsByUser(userId: string) {
     return Array.from(this.state.notifications.entries())
       .filter(([, doc]) => doc.userId === userId)
+      .map(([id, doc]) => ({ doc, id }));
+  }
+
+  async listOwnerBillingAccountsByAgency(agencyId: string) {
+    return Array.from(this.state.ownerBillingAccounts.entries())
+      .filter(([, doc]) => doc.agencyId === agencyId)
+      .map(([id, doc]) => ({ doc, id }));
+  }
+
+  async listOwnerBillingInvoicesByOwner(ownerId: string) {
+    return Array.from(this.state.ownerBillingInvoices.entries())
+      .filter(([, doc]) => doc.ownerId === ownerId)
       .map(([id, doc]) => ({ doc, id }));
   }
 
@@ -239,6 +277,9 @@ class FakeRepository implements DataRepository {
       auditLogs: cloneMap(this.state.auditLogs),
       legalDocuments: cloneMap(this.state.legalDocuments),
       notifications: cloneMap(this.state.notifications),
+      ownerBillingAccounts: cloneMap(this.state.ownerBillingAccounts),
+      ownerBillingInvoices: cloneMap(this.state.ownerBillingInvoices),
+      ownerBillingPayments: cloneMap(this.state.ownerBillingPayments),
       owners: cloneMap(this.state.owners),
       ownerAccessInvites: cloneMap(this.state.ownerAccessInvites),
       properties: cloneMap(this.state.properties),
@@ -294,6 +335,14 @@ class FakeRepository implements DataRepository {
         assertReadable();
         return working.ownerAccessInvites.get(inviteId) ?? null;
       },
+      getOwnerBillingAccount: async (ownerId) => {
+        assertReadable();
+        return working.ownerBillingAccounts.get(ownerId) ?? null;
+      },
+      getOwnerBillingInvoice: async (invoiceId) => {
+        assertReadable();
+        return working.ownerBillingInvoices.get(invoiceId) ?? null;
+      },
       getPayment: async (paymentId) => {
         assertReadable();
         return working.rentPayments.get(paymentId) ?? null;
@@ -330,6 +379,36 @@ class FakeRepository implements DataRepository {
         assertReadable();
         return working.users.get(uid) ?? null;
       },
+      listOwnerBillingInvoicesByOwner: async (ownerId) => {
+        assertReadable();
+        return Array.from(working.ownerBillingInvoices.entries())
+          .filter(([, doc]) => doc.ownerId === ownerId)
+          .map(([id, doc]) => ({ doc, id }));
+      },
+      listPaymentsByUnit: async (unitId) => {
+        assertReadable();
+        return Array.from(working.rentPayments.entries())
+          .filter(([, doc]) => doc.unitId === unitId)
+          .map(([id, doc]) => ({ doc, id }));
+      },
+      listUnitsByProperty: async (propertyId) => {
+        assertReadable();
+        return Array.from(working.units.entries())
+          .filter(([, doc]) => doc.propertyId === propertyId)
+          .map(([id, doc]) => ({ doc, id }));
+      },
+      deleteProperty: (propertyId) => {
+        hasWritten = true;
+        working.properties.delete(propertyId);
+      },
+      deleteUnit: (unitId) => {
+        hasWritten = true;
+        working.units.delete(unitId);
+      },
+      deleteOwnerAccessInvite: (inviteId) => {
+        hasWritten = true;
+        working.ownerAccessInvites.delete(inviteId);
+      },
       setAgency: (agencyId, agency) => {
         hasWritten = true;
         working.agencies.set(agencyId, structuredClone(agency));
@@ -341,6 +420,18 @@ class FakeRepository implements DataRepository {
       setLegalTerms: (documentId, terms) => {
         hasWritten = true;
         working.legalDocuments.set(documentId, structuredClone(terms));
+      },
+      setOwnerBillingAccount: (ownerId, account) => {
+        hasWritten = true;
+        working.ownerBillingAccounts.set(ownerId, structuredClone(account));
+      },
+      setOwnerBillingInvoice: (invoiceId, invoice) => {
+        hasWritten = true;
+        working.ownerBillingInvoices.set(invoiceId, structuredClone(invoice));
+      },
+      setOwnerBillingPayment: (paymentId, payment) => {
+        hasWritten = true;
+        working.ownerBillingPayments.set(paymentId, structuredClone(payment));
       },
       setOwnerAccessInvite: (inviteId, invite) => {
         hasWritten = true;
@@ -409,6 +500,16 @@ class FakeRepository implements DataRepository {
         const current = getRequired(working.ownerAccessInvites, inviteId);
         working.ownerAccessInvites.set(inviteId, { ...current, ...structuredClone(patch) });
       },
+      updateOwnerBillingAccount: (ownerId, patch) => {
+        hasWritten = true;
+        const current = getRequired(working.ownerBillingAccounts, ownerId);
+        working.ownerBillingAccounts.set(ownerId, { ...current, ...structuredClone(patch) });
+      },
+      updateOwnerBillingInvoice: (invoiceId, patch) => {
+        hasWritten = true;
+        const current = getRequired(working.ownerBillingInvoices, invoiceId);
+        working.ownerBillingInvoices.set(invoiceId, { ...current, ...structuredClone(patch) });
+      },
       updateInvite: (inviteId, patch) => {
         hasWritten = true;
         const current = getRequired(working.tenantInvites, inviteId);
@@ -423,6 +524,11 @@ class FakeRepository implements DataRepository {
         hasWritten = true;
         const current = getRequired(working.rentPayments, paymentId);
         working.rentPayments.set(paymentId, { ...current, ...structuredClone(patch) });
+      },
+      updateProperty: (propertyId, patch) => {
+        hasWritten = true;
+        const current = getRequired(working.properties, propertyId);
+        working.properties.set(propertyId, { ...current, ...structuredClone(patch) });
       },
       updateSupportRequest: (requestId, patch) => {
         hasWritten = true;
@@ -470,7 +576,7 @@ function buildUser(input: {
   status?: 'active' | 'pending_owner_access' | 'suspended';
   tenantId?: string | null;
   uid: string;
-}) {
+}): UserDoc {
   return {
     agencyId: input.agencyId ?? null,
     authProviders: ['password'] as const,
@@ -480,6 +586,7 @@ function buildUser(input: {
     emailVerified: true,
     ownerId: input.ownerId ?? null,
     phoneNumber: null,
+    phoneVerificationStatus: null,
     photoURL: null,
     recoveryContactPreference: null,
     role: input.role,
@@ -491,18 +598,222 @@ function buildUser(input: {
   } satisfies UserDoc;
 }
 
-async function buildTestApp(seed?: Partial<StoreState>) {
+function buildOwnerBillingAccount(status: OwnerBillingAccount['status']): OwnerBillingAccount {
+  const periodByStatus = {
+    active: {
+      currentPeriodEnd: '2026-06-03T10:00:00.000Z',
+      currentPeriodStart: '2026-04-22T10:00:00.000Z',
+      gracePeriodEndsAt: '2026-06-10T10:00:00.000Z',
+      nextPaymentDueAt: '2026-06-03T10:00:00.000Z',
+      updatedAt: '2026-04-22T10:00:00.000Z',
+    },
+    grace_period: {
+      currentPeriodEnd: '2026-04-20T10:00:00.000Z',
+      currentPeriodStart: '2026-03-09T10:00:00.000Z',
+      gracePeriodEndsAt: '2026-04-27T10:00:00.000Z',
+      nextPaymentDueAt: '2026-04-20T10:00:00.000Z',
+      updatedAt: '2026-04-20T10:00:00.000Z',
+    },
+    past_due: {
+      currentPeriodEnd: '2026-03-01T10:00:00.000Z',
+      currentPeriodStart: '2026-01-19T10:00:00.000Z',
+      gracePeriodEndsAt: '2026-03-08T10:00:00.000Z',
+      nextPaymentDueAt: '2026-03-01T10:00:00.000Z',
+      updatedAt: '2026-03-08T10:00:00.000Z',
+    },
+    suspended: {
+      currentPeriodEnd: '2026-03-01T10:00:00.000Z',
+      currentPeriodStart: '2026-01-19T10:00:00.000Z',
+      gracePeriodEndsAt: '2026-03-08T10:00:00.000Z',
+      nextPaymentDueAt: '2026-03-01T10:00:00.000Z',
+      updatedAt: '2026-03-08T10:00:00.000Z',
+    },
+  } satisfies Record<OwnerBillingAccount['status'], {
+    currentPeriodEnd: string;
+    currentPeriodStart: string;
+    gracePeriodEndsAt: string;
+    nextPaymentDueAt: string;
+    updatedAt: string;
+  }>;
+
+  return {
+    agencyId: 'agency-1',
+    createdAt: '2026-01-01T10:00:00.000Z',
+    feeAmount: 10,
+    feeCurrency: 'EUR',
+    intervalDays: 42,
+    ownerId: 'owner-1',
+    status,
+    ...periodByStatus[status],
+  };
+}
+
+function buildOwnerBillingPaymentSeed(status: OwnerBillingAccount['status']): Partial<StoreState> {
+  return {
+    ownerBillingAccounts: new Map([['owner-1', buildOwnerBillingAccount(status)]]),
+    owners: new Map([
+      [
+        'owner-1',
+        {
+          agencyId: 'agency-1',
+          createdAt: '2026-04-20T10:00:00.000Z',
+          displayName: 'Owner User',
+          updatedAt: '2026-04-20T10:00:00.000Z',
+          userId: 'owner-1',
+        },
+      ],
+    ]),
+    properties: new Map([
+      [
+        'property-1',
+        {
+          address: 'Tevragh-Zeina',
+          createdAt: '2026-04-20T10:00:00.000Z',
+          label: 'Résidence Alpha',
+          ownerId: 'owner-1',
+          updatedAt: '2026-04-20T10:00:00.000Z',
+        },
+      ],
+    ]),
+    rentPayments: new Map([
+      [
+        'payment-1',
+        {
+          agencyFeeAmount: 0,
+          agencyId: 'agency-1',
+          commissionRate: 0,
+          createdAt: '2026-04-20T10:00:00.000Z',
+          dueDate: '2026-04-05',
+          grossAmount: 200000,
+          monthKey: '2026-04',
+          ownerId: 'owner-1',
+          ownerNetAmount: 200000,
+          ownerReceivableAmount: 200000,
+          paidAt: null,
+          paymentMethod: null,
+          paymentStatus: 'pending',
+          platformRentFeeAmount: 0,
+          propertyId: 'property-1',
+          providerReference: null,
+          receiptId: null,
+          rentAmount: 200000,
+          tenantFeeAmount: 0,
+          tenantId: 'tenant-1',
+          unitId: 'unit-1',
+          updatedAt: '2026-04-20T10:00:00.000Z',
+        },
+      ],
+    ]),
+    tenants: new Map([
+      [
+        'tenant-1',
+        {
+          createdAt: '2026-04-20T10:00:00.000Z',
+          displayName: 'Tenant User',
+          email: 'tenant@example.com',
+          ownerId: 'owner-1',
+          propertyId: 'property-1',
+          status: 'active',
+          unitId: 'unit-1',
+          updatedAt: '2026-04-20T10:00:00.000Z',
+          userId: 'tenant-1',
+        },
+      ],
+    ]),
+    units: new Map([
+      [
+        'unit-1',
+        {
+          activeInviteId: null,
+          createdAt: '2026-04-20T10:00:00.000Z',
+          currency: 'MRU',
+          label: 'A1',
+          ownerId: 'owner-1',
+          propertyId: 'property-1',
+          rentAmount: 200000,
+          status: 'occupied',
+          tenantId: 'tenant-1',
+          updatedAt: '2026-04-20T10:00:00.000Z',
+        },
+      ],
+    ]),
+    users: new Map([
+      [
+        'owner-1',
+        buildUser({
+          agencyId: 'agency-1',
+          email: 'owner@example.com',
+          ownerId: 'owner-1',
+          role: 'owner',
+          uid: 'owner-1',
+        }),
+      ],
+      [
+        'tenant-1',
+        buildUser({
+          agencyId: 'agency-1',
+          email: 'tenant@example.com',
+          ownerId: 'owner-1',
+          role: 'tenant',
+          tenantId: 'tenant-1',
+          uid: 'tenant-1',
+        }),
+      ],
+    ]),
+  };
+}
+
+function buildOwnerBillingUserSeed(): Partial<StoreState> {
+  return {
+    owners: new Map([
+      [
+        'owner-1',
+        {
+          agencyId: 'agency-1',
+          createdAt: '2026-04-20T10:00:00.000Z',
+          displayName: 'Owner User',
+          updatedAt: '2026-04-20T10:00:00.000Z',
+          userId: 'owner-1',
+        },
+      ],
+    ]),
+    users: new Map([
+      [
+        'owner-1',
+        buildUser({
+          agencyId: 'agency-1',
+          email: 'owner@example.com',
+          ownerId: 'owner-1',
+          role: 'owner',
+          uid: 'owner-1',
+        }),
+      ],
+    ]),
+  };
+}
+
+async function buildTestApp(
+  seed?: Partial<StoreState>,
+  options?: {
+    config?: Partial<AppConfig>;
+    emailService?: InviteEmailService;
+  },
+) {
   const config: AppConfig = {
+    appVariant: 'development',
     credentialStrategy: 'application-default',
     firebaseProjectId: 'atoupay-test',
     host: '127.0.0.1',
     inviteBaseUrl: 'atoupay://auth/login',
+    isEmailEnabled: false,
     isAuthEmulatorEnabled: false,
     isFirestoreEmulatorEnabled: false,
     logLevel: 'silent',
     nodeEnv: 'test',
+    paymentProvider: 'simulated',
     port: 3001,
     runtimeMode: 'cloud-run',
+    ...options?.config,
   };
   const repository = new FakeRepository(seed);
   if (!repository.state.legalDocuments.has('terms-of-use')) {
@@ -539,6 +850,7 @@ async function buildTestApp(seed?: Partial<StoreState>) {
       displayName: 'Agency Admin',
       email: 'admin@example.com',
       emailVerified: true,
+      phoneNumber: null,
       photoUrl: null,
       primaryProvider: 'password',
       providers: ['password'],
@@ -548,6 +860,7 @@ async function buildTestApp(seed?: Partial<StoreState>) {
       displayName: 'Owner User',
       email: 'owner@example.com',
       emailVerified: true,
+      phoneNumber: null,
       photoUrl: null,
       primaryProvider: 'password',
       providers: ['password'],
@@ -557,14 +870,26 @@ async function buildTestApp(seed?: Partial<StoreState>) {
       displayName: 'Tenant User',
       email: 'tenant@example.com',
       emailVerified: true,
+      phoneNumber: null,
       photoUrl: null,
       primaryProvider: 'google',
       providers: ['google'],
       uid: 'tenant-1',
     },
+    'tenant-phone-token': {
+      displayName: 'Tenant User',
+      email: 'tenant@example.com',
+      emailVerified: true,
+      phoneNumber: '+22236000000',
+      photoUrl: null,
+      primaryProvider: 'phone',
+      providers: ['google', 'phone'],
+      uid: 'tenant-1',
+    },
   });
   const services = new BackendService({
     config,
+    ...(options?.emailService ? { emailService: options.emailService } : {}),
     now: () => new Date('2026-04-22T10:00:00.000Z'),
     repository,
   });
@@ -645,6 +970,73 @@ test('POST /v1/legal/terms/accept stores the authenticated acceptance', async ()
   await app.close();
 });
 
+test('PATCH /v1/profile/contact marks a Firebase-verified matching phone as verified', async () => {
+  const { app, repository } = await buildTestApp({
+    users: new Map([
+      [
+        'tenant-1',
+        buildUser({
+          email: 'tenant@example.com',
+          role: 'tenant',
+          uid: 'tenant-1',
+        }),
+      ],
+    ]),
+  });
+
+  const response = await app.inject({
+    headers: {
+      authorization: 'Bearer tenant-phone-token',
+    },
+    method: 'PATCH',
+    payload: {
+      phoneNumber: '+22236000000',
+      recoveryContactPreference: 'phone',
+    },
+    url: '/v1/profile/contact',
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().data.phoneNumber, '+22236000000');
+  assert.equal(response.json().data.phoneVerificationStatus, 'verified');
+  assert.equal(repository.state.users.get('tenant-1')?.phoneVerificationStatus, 'verified');
+
+  await app.close();
+});
+
+test('PATCH /v1/profile/contact resets verification when the phone changes away from Firebase Auth', async () => {
+  const verifiedUser = buildUser({
+    email: 'tenant@example.com',
+    role: 'tenant',
+    uid: 'tenant-1',
+  });
+  verifiedUser.phoneNumber = '+22236000000';
+  verifiedUser.phoneVerificationStatus = 'verified';
+
+  const { app, repository } = await buildTestApp({
+    users: new Map([['tenant-1', verifiedUser]]),
+  });
+
+  const response = await app.inject({
+    headers: {
+      authorization: 'Bearer tenant-phone-token',
+    },
+    method: 'PATCH',
+    payload: {
+      phoneNumber: '+22245000000',
+      recoveryContactPreference: 'phone',
+    },
+    url: '/v1/profile/contact',
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().data.phoneNumber, '+22245000000');
+  assert.equal(response.json().data.phoneVerificationStatus, 'unverified');
+  assert.equal(repository.state.users.get('tenant-1')?.phoneVerificationStatus, 'unverified');
+
+  await app.close();
+});
+
 test('POST /v1/profile/bootstrap leaves a fresh owner pending agency access', async () => {
   const { app, repository } = await buildTestApp();
 
@@ -717,7 +1109,373 @@ test('POST /v1/profile/bootstrap claims a seeded agency admin bootstrap', async 
   await app.close();
 });
 
+test('POST /v1/profile/bootstrap routes authorized agency credentials from owner or tenant paths', async () => {
+  const bootstrapId = hashStableValue('admin@example.com');
+  const { app, repository } = await buildTestApp({
+    agencies: new Map([
+      [
+        'agency-1',
+        {
+          commissionRate: 0.1,
+          commissionType: 'percentage',
+          createdAt: '2026-04-20T10:00:00.000Z',
+          displayName: 'Agence Test',
+          updatedAt: '2026-04-20T10:00:00.000Z',
+        },
+      ],
+    ]),
+    agencyAdminBootstraps: new Map([
+      [
+        bootstrapId,
+        {
+          agencyId: 'agency-1',
+          claimedAt: null,
+          claimedByUid: null,
+          createdAt: '2026-04-20T10:00:00.000Z',
+          email: 'admin@example.com',
+          status: 'pending',
+          updatedAt: '2026-04-20T10:00:00.000Z',
+        },
+      ],
+    ]),
+  });
+
+  const response = await app.inject({
+    headers: {
+      authorization: 'Bearer admin-token',
+    },
+    method: 'POST',
+    payload: {
+      role: 'owner',
+    },
+    url: '/v1/profile/bootstrap',
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().data.role, 'agency_admin');
+  assert.equal(repository.state.users.get('admin-1')?.role, 'agency_admin');
+  assert.equal(repository.state.agencyAdminBootstraps.get(bootstrapId)?.claimedByUid, 'admin-1');
+
+  await app.close();
+});
+
+test('POST /v1/profile/bootstrap returns the existing account role from the wrong public path', async () => {
+  const { app } = await buildTestApp({
+    users: new Map([
+      [
+        'owner-1',
+        buildUser({
+          agencyId: 'agency-1',
+          email: 'owner@example.com',
+          ownerId: 'owner-1',
+          role: 'owner',
+          uid: 'owner-1',
+        }),
+      ],
+    ]),
+  });
+
+  const response = await app.inject({
+    headers: {
+      authorization: 'Bearer owner-token',
+    },
+    method: 'POST',
+    payload: {
+      role: 'tenant',
+    },
+    url: '/v1/profile/bootstrap',
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().data.role, 'owner');
+  assert.equal(response.json().data.ownerId, 'owner-1');
+
+  await app.close();
+});
+
 test('POST /v1/agency/owner-access-invites creates an invite for an agency admin', async () => {
+  const sentOwnerAccessEmails: Parameters<InviteEmailService['sendOwnerAccessInvite']>[0][] = [];
+  const { app, repository } = await buildTestApp({
+    agencies: new Map([
+      [
+        'agency-1',
+        {
+          commissionRate: 0.1,
+          commissionType: 'percentage',
+          createdAt: '2026-04-20T10:00:00.000Z',
+          displayName: 'Agence Test',
+          updatedAt: '2026-04-20T10:00:00.000Z',
+        },
+      ],
+    ]),
+    users: new Map([
+      [
+        'admin-1',
+        buildUser({
+          agencyId: 'agency-1',
+          email: 'admin@example.com',
+          role: 'agency_admin',
+          uid: 'admin-1',
+        }),
+      ],
+    ]),
+  }, {
+    emailService: {
+      async sendOwnerAccessInvite(input) {
+        sentOwnerAccessEmails.push(input);
+      },
+      async sendTenantInvite() {},
+    },
+  });
+
+  const response = await app.inject({
+    headers: {
+      authorization: 'Bearer admin-token',
+    },
+    method: 'POST',
+    payload: {
+      email: 'new-owner@example.com',
+      inviteType: 'code' satisfies InviteType,
+    },
+    url: '/v1/agency/owner-access-invites',
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(response.json().data.status, 'pending');
+  assert.equal(repository.state.ownerAccessInvites.size, 1);
+  assert.equal(sentOwnerAccessEmails.length, 1);
+  assert.equal(sentOwnerAccessEmails[0]?.email, 'new-owner@example.com');
+  assert.equal(sentOwnerAccessEmails[0]?.agencyName, 'Agence Test');
+  assert.equal(sentOwnerAccessEmails[0]?.inviteCode, response.json().data.ownerInviteCode);
+
+  await app.close();
+});
+
+test('invite email failures do not block owner access invite creation', async () => {
+  const { app, repository } = await buildTestApp({
+    agencies: new Map([
+      [
+        'agency-1',
+        {
+          commissionRate: 0.1,
+          commissionType: 'percentage',
+          createdAt: '2026-04-20T10:00:00.000Z',
+          displayName: 'Agence Test',
+          updatedAt: '2026-04-20T10:00:00.000Z',
+        },
+      ],
+    ]),
+    users: new Map([
+      [
+        'admin-1',
+        buildUser({
+          agencyId: 'agency-1',
+          email: 'admin@example.com',
+          role: 'agency_admin',
+          uid: 'admin-1',
+        }),
+      ],
+    ]),
+  }, {
+    emailService: {
+      async sendOwnerAccessInvite() {
+        throw new Error('resend unavailable');
+      },
+      async sendTenantInvite() {},
+    },
+  });
+
+  const response = await app.inject({
+    headers: {
+      authorization: 'Bearer admin-token',
+    },
+    method: 'POST',
+    payload: {
+      email: 'new-owner@example.com',
+      inviteType: 'code' satisfies InviteType,
+    },
+    url: '/v1/agency/owner-access-invites',
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(response.json().data.status, 'pending');
+  assert.equal(repository.state.ownerAccessInvites.size, 1);
+
+  await app.close();
+});
+
+test('POST /v1/agency/owner-access-invites/:inviteId/revoke revokes a pending invite', async () => {
+  const inviteId = 'owner-access-invite-1';
+  const { app, repository } = await buildTestApp({
+    agencies: new Map([
+      [
+        'agency-1',
+        {
+          commissionRate: 0.1,
+          commissionType: 'percentage',
+          createdAt: '2026-04-20T10:00:00.000Z',
+          displayName: 'Agence Test',
+          updatedAt: '2026-04-20T10:00:00.000Z',
+        },
+      ],
+    ]),
+    ownerAccessInvites: new Map([
+      [
+        inviteId,
+        {
+          agencyId: 'agency-1',
+          claimedAt: null,
+          claimedByUid: null,
+          codeHash: inviteId,
+          createdAt: '2026-04-22T10:00:00.000Z',
+          email: 'new-owner@example.com',
+          expiresAt: '2026-04-29T10:00:00.000Z',
+          intendedRole: 'owner',
+          inviteType: 'code' satisfies InviteType,
+          status: 'pending',
+        },
+      ],
+    ]),
+    users: new Map([
+      [
+        'admin-1',
+        buildUser({
+          agencyId: 'agency-1',
+          email: 'admin@example.com',
+          role: 'agency_admin',
+          uid: 'admin-1',
+        }),
+      ],
+    ]),
+  });
+
+  const response = await app.inject({
+    headers: {
+      authorization: 'Bearer admin-token',
+    },
+    method: 'POST',
+    url: `/v1/agency/owner-access-invites/${inviteId}/revoke`,
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().data.status, 'revoked');
+  assert.equal(repository.state.ownerAccessInvites.get(inviteId)?.status, 'revoked');
+  assert.equal(repository.state.auditLogs.size, 1);
+
+  await app.close();
+});
+
+test('DELETE /v1/agency/owner-access-invites/:inviteId removes a revoked invite', async () => {
+  const inviteId = 'owner-access-invite-1';
+  const { app, repository } = await buildTestApp({
+    agencies: new Map([
+      [
+        'agency-1',
+        {
+          commissionRate: 0.1,
+          commissionType: 'percentage',
+          createdAt: '2026-04-20T10:00:00.000Z',
+          displayName: 'Agence Test',
+          updatedAt: '2026-04-20T10:00:00.000Z',
+        },
+      ],
+    ]),
+    ownerAccessInvites: new Map([
+      [
+        inviteId,
+        {
+          agencyId: 'agency-1',
+          claimedAt: null,
+          claimedByUid: null,
+          codeHash: inviteId,
+          createdAt: '2026-04-22T10:00:00.000Z',
+          email: 'old-owner@example.com',
+          expiresAt: '2026-04-29T10:00:00.000Z',
+          intendedRole: 'owner',
+          inviteType: 'code' satisfies InviteType,
+          status: 'revoked',
+        },
+      ],
+    ]),
+    users: new Map([
+      [
+        'admin-1',
+        buildUser({
+          agencyId: 'agency-1',
+          email: 'admin@example.com',
+          role: 'agency_admin',
+          uid: 'admin-1',
+        }),
+      ],
+    ]),
+  });
+
+  const response = await app.inject({
+    headers: {
+      authorization: 'Bearer admin-token',
+    },
+    method: 'DELETE',
+    url: `/v1/agency/owner-access-invites/${inviteId}`,
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().data.id, inviteId);
+  assert.equal(repository.state.ownerAccessInvites.has(inviteId), false);
+  assert.equal(repository.state.auditLogs.size, 1);
+  assert.equal(Array.from(repository.state.auditLogs.values())[0]?.eventType, 'owner_invite_deleted');
+
+  await app.close();
+});
+
+test('DELETE /v1/agency/owner-access-invites/:inviteId requires revoke before delete', async () => {
+  const inviteId = 'owner-access-invite-1';
+  const { app, repository } = await buildTestApp({
+    ownerAccessInvites: new Map([
+      [
+        inviteId,
+        {
+          agencyId: 'agency-1',
+          claimedAt: null,
+          claimedByUid: null,
+          codeHash: inviteId,
+          createdAt: '2026-04-22T10:00:00.000Z',
+          email: 'new-owner@example.com',
+          expiresAt: '2026-04-29T10:00:00.000Z',
+          intendedRole: 'owner',
+          inviteType: 'code' satisfies InviteType,
+          status: 'pending',
+        },
+      ],
+    ]),
+    users: new Map([
+      [
+        'admin-1',
+        buildUser({
+          agencyId: 'agency-1',
+          email: 'admin@example.com',
+          role: 'agency_admin',
+          uid: 'admin-1',
+        }),
+      ],
+    ]),
+  });
+
+  const response = await app.inject({
+    headers: {
+      authorization: 'Bearer admin-token',
+    },
+    method: 'DELETE',
+    url: `/v1/agency/owner-access-invites/${inviteId}`,
+  });
+
+  assert.equal(response.statusCode, 409);
+  assert.equal(response.json().error.code, 'owner_access_revoke_required');
+  assert.equal(repository.state.ownerAccessInvites.has(inviteId), true);
+
+  await app.close();
+});
+
+test('PATCH /v1/agency/settings updates agency display name and keeps rent commission disabled', async () => {
   const { app, repository } = await buildTestApp({
     agencies: new Map([
       [
@@ -748,17 +1506,22 @@ test('POST /v1/agency/owner-access-invites creates an invite for an agency admin
     headers: {
       authorization: 'Bearer admin-token',
     },
-    method: 'POST',
+    method: 'PATCH',
     payload: {
-      email: 'new-owner@example.com',
-      inviteType: 'code' satisfies InviteType,
+      displayName: 'Agence Centre',
     },
-    url: '/v1/agency/owner-access-invites',
+    url: '/v1/agency/settings',
   });
 
-  assert.equal(response.statusCode, 201);
-  assert.equal(response.json().data.status, 'pending');
-  assert.equal(repository.state.ownerAccessInvites.size, 1);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().data.displayName, 'Agence Centre');
+  assert.equal(response.json().data.commissionRate, 0);
+  assert.equal(response.json().data.legacyCommissionRate, 0.1);
+  assert.equal(response.json().data.ownerAccountFeeAmount, 10);
+  assert.equal(response.json().data.ownerAccountFeeCurrency, 'EUR');
+  assert.equal(response.json().data.ownerAccountFeeIntervalDays, 42);
+  assert.equal(repository.state.agencies.get('agency-1')?.commissionRate, 0);
+  assert.equal(repository.state.agencies.get('agency-1')?.displayName, 'Agence Centre');
 
   await app.close();
 });
@@ -790,6 +1553,24 @@ test('POST /v1/agency/owner-access-invites rejects non agency admins', async () 
 
   assert.equal(response.statusCode, 403);
   assert.equal(response.json().error.code, 'forbidden_role');
+
+  await app.close();
+});
+
+test('empty JSON request bodies return invalid_request instead of internal_error', async () => {
+  const { app } = await buildTestApp();
+
+  const response = await app.inject({
+    headers: {
+      authorization: 'Bearer owner-token',
+      'content-type': 'application/json',
+    },
+    method: 'POST',
+    url: '/v1/profile/bootstrap',
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json().error.code, 'invalid_request');
 
   await app.close();
 });
@@ -1130,6 +1911,204 @@ test('agency and owner dashboards expose operational summaries', async () => {
   await app.close();
 });
 
+test('owner inventory endpoints update and delete safe records', async () => {
+  const { app, repository } = await buildTestApp({
+    owners: new Map([
+      [
+        'owner-1',
+        {
+          agencyId: 'agency-1',
+          createdAt: '2026-04-22T09:00:00.000Z',
+          displayName: 'Owner User',
+          updatedAt: '2026-04-22T09:00:00.000Z',
+          userId: 'owner-1',
+        },
+      ],
+    ]),
+    properties: new Map([
+      [
+        'property-1',
+        {
+          address: 'Old address',
+          createdAt: '2026-04-22T09:00:00.000Z',
+          label: 'Old property',
+          ownerId: 'owner-1',
+          updatedAt: '2026-04-22T09:00:00.000Z',
+        },
+      ],
+    ]),
+    units: new Map([
+      [
+        'unit-1',
+        {
+          activeInviteId: null,
+          createdAt: '2026-04-22T09:00:00.000Z',
+          currency: 'MRU',
+          label: 'A1',
+          notes: null,
+          ownerId: 'owner-1',
+          propertyId: 'property-1',
+          rentAmount: 100000,
+          status: 'vacant',
+          tenantId: null,
+          updatedAt: '2026-04-22T09:00:00.000Z',
+        },
+      ],
+    ]),
+    users: new Map([
+      [
+        'owner-1',
+        buildUser({
+          agencyId: 'agency-1',
+          email: 'owner@example.com',
+          ownerId: 'owner-1',
+          role: 'owner',
+          uid: 'owner-1',
+        }),
+      ],
+    ]),
+  });
+
+  const propertyResponse = await app.inject({
+    headers: {
+      authorization: 'Bearer owner-token',
+    },
+    method: 'PATCH',
+    payload: {
+      address: 'Tevragh-Zeina, Nouakchott',
+      label: 'Résidence Alpha',
+    },
+    url: '/v1/owner/properties/property-1',
+  });
+
+  assert.equal(propertyResponse.statusCode, 200);
+  assert.equal(repository.state.properties.get('property-1')?.label, 'Résidence Alpha');
+
+  const unitResponse = await app.inject({
+    headers: {
+      authorization: 'Bearer owner-token',
+    },
+    method: 'PATCH',
+    payload: {
+      label: 'Appartement A3',
+      notes: '2e étage',
+      rentAmount: 150000,
+    },
+    url: '/v1/owner/units/unit-1',
+  });
+
+  assert.equal(unitResponse.statusCode, 200);
+  assert.equal(repository.state.units.get('unit-1')?.label, 'Appartement A3');
+  assert.equal(repository.state.units.get('unit-1')?.rentAmount, 150000);
+
+  const deleteUnitResponse = await app.inject({
+    headers: {
+      authorization: 'Bearer owner-token',
+    },
+    method: 'DELETE',
+    url: '/v1/owner/units/unit-1',
+  });
+
+  assert.equal(deleteUnitResponse.statusCode, 200);
+  assert.equal(repository.state.units.has('unit-1'), false);
+
+  const deletePropertyResponse = await app.inject({
+    headers: {
+      authorization: 'Bearer owner-token',
+    },
+    method: 'DELETE',
+    url: '/v1/owner/properties/property-1',
+  });
+
+  assert.equal(deletePropertyResponse.statusCode, 200);
+  assert.equal(repository.state.properties.has('property-1'), false);
+
+  await app.close();
+});
+
+test('owner inventory delete rejects occupied or non-empty records', async () => {
+  const { app } = await buildTestApp({
+    owners: new Map([
+      [
+        'owner-1',
+        {
+          agencyId: 'agency-1',
+          createdAt: '2026-04-22T09:00:00.000Z',
+          displayName: 'Owner User',
+          updatedAt: '2026-04-22T09:00:00.000Z',
+          userId: 'owner-1',
+        },
+      ],
+    ]),
+    properties: new Map([
+      [
+        'property-1',
+        {
+          address: 'Tevragh-Zeina',
+          createdAt: '2026-04-22T09:00:00.000Z',
+          label: 'Résidence Alpha',
+          ownerId: 'owner-1',
+          updatedAt: '2026-04-22T09:00:00.000Z',
+        },
+      ],
+    ]),
+    units: new Map([
+      [
+        'unit-1',
+        {
+          activeInviteId: null,
+          createdAt: '2026-04-22T09:00:00.000Z',
+          currency: 'MRU',
+          label: 'A1',
+          notes: null,
+          ownerId: 'owner-1',
+          propertyId: 'property-1',
+          rentAmount: 100000,
+          status: 'occupied',
+          tenantId: 'tenant-1',
+          updatedAt: '2026-04-22T09:00:00.000Z',
+        },
+      ],
+    ]),
+    users: new Map([
+      [
+        'owner-1',
+        buildUser({
+          agencyId: 'agency-1',
+          email: 'owner@example.com',
+          ownerId: 'owner-1',
+          role: 'owner',
+          uid: 'owner-1',
+        }),
+      ],
+    ]),
+  });
+
+  const deleteUnitResponse = await app.inject({
+    headers: {
+      authorization: 'Bearer owner-token',
+    },
+    method: 'DELETE',
+    url: '/v1/owner/units/unit-1',
+  });
+
+  assert.equal(deleteUnitResponse.statusCode, 409);
+  assert.equal(deleteUnitResponse.json().error.code, 'unit_not_deletable');
+
+  const deletePropertyResponse = await app.inject({
+    headers: {
+      authorization: 'Bearer owner-token',
+    },
+    method: 'DELETE',
+    url: '/v1/owner/properties/property-1',
+  });
+
+  assert.equal(deletePropertyResponse.statusCode, 409);
+  assert.equal(deletePropertyResponse.json().error.code, 'property_has_units');
+
+  await app.close();
+});
+
 test('agency admins can suspend and reactivate agency users', async () => {
   const { app, repository } = await buildTestApp({
     users: new Map([
@@ -1222,6 +2201,7 @@ test('agency admins can suspend and reactivate agency users', async () => {
 test('live owner -> tenant -> simulated payment flow issues a verifiable receipt', async () => {
   const ownerInviteCode = 'OWNR-1111-AAAA-BBBB';
   const ownerInviteId = hashInviteCode(ownerInviteCode);
+  const sentTenantEmails: Parameters<InviteEmailService['sendTenantInvite']>[0][] = [];
   const { app, repository } = await buildTestApp({
     agencies: new Map([
       [
@@ -1271,6 +2251,13 @@ test('live owner -> tenant -> simulated payment flow issues a verifiable receipt
         }),
       ],
     ]),
+  }, {
+    emailService: {
+      async sendOwnerAccessInvite() {},
+      async sendTenantInvite(input) {
+        sentTenantEmails.push(input);
+      },
+    },
   });
 
   const activateOwnerResponse = await app.inject({
@@ -1309,6 +2296,7 @@ test('live owner -> tenant -> simulated payment flow issues a verifiable receipt
     payload: {
       currency: 'MRU',
       label: 'A1',
+      notes: '2e étage, côté cour',
       propertyId,
       rentAmount: 200000,
     },
@@ -1317,6 +2305,7 @@ test('live owner -> tenant -> simulated payment flow issues a verifiable receipt
 
   assert.equal(unitResponse.statusCode, 201);
   const unitId = unitResponse.json().data.id as string;
+  assert.equal(repository.state.units.get(unitId)?.notes, '2e étage, côté cour');
 
   const tenantInviteResponse = await app.inject({
     headers: {
@@ -1333,6 +2322,12 @@ test('live owner -> tenant -> simulated payment flow issues a verifiable receipt
 
   assert.equal(tenantInviteResponse.statusCode, 201);
   const tenantInviteCode = tenantInviteResponse.json().data.inviteCode as string;
+  assert.equal(sentTenantEmails.length, 1);
+  assert.equal(sentTenantEmails[0]?.email, 'tenant@example.com');
+  assert.equal(sentTenantEmails[0]?.ownerName, 'Owner User');
+  assert.equal(sentTenantEmails[0]?.propertyLabel, 'Résidence Alpha');
+  assert.equal(sentTenantEmails[0]?.unitLabel, 'A1');
+  assert.equal(sentTenantEmails[0]?.inviteCode, tenantInviteCode);
 
   const tenantRedeemResponse = await app.inject({
     headers: {
@@ -1350,8 +2345,12 @@ test('live owner -> tenant -> simulated payment flow issues a verifiable receipt
   const seededPayment = repository.state.rentPayments.get(paymentId);
 
   assert.equal(seededPayment?.paymentStatus, 'pending' satisfies PaymentStatus);
-  assert.equal(seededPayment?.agencyFeeAmount, 30000);
-  assert.equal(seededPayment?.ownerNetAmount, 170000);
+  assert.equal(seededPayment?.agencyFeeAmount, 0);
+  assert.equal(seededPayment?.commissionRate, 0);
+  assert.equal(seededPayment?.ownerNetAmount, 200000);
+  assert.equal(seededPayment?.tenantFeeAmount, 0);
+  assert.equal(seededPayment?.platformRentFeeAmount, 0);
+  assert.equal(seededPayment?.ownerReceivableAmount, 200000);
 
   const completePaymentResponse = await app.inject({
     headers: {
@@ -1369,8 +2368,8 @@ test('live owner -> tenant -> simulated payment flow issues a verifiable receipt
 
   assert.equal(receipt.simulated, true);
   assert.equal(receipt.grossAmount, 200000);
-  assert.equal(receipt.agencyFeeAmount, 30000);
-  assert.equal(receipt.ownerNetAmount, 170000);
+  assert.equal(receipt.agencyFeeAmount, 0);
+  assert.equal(receipt.ownerNetAmount, 200000);
 
   const verifyResponse = await app.inject({
     method: 'GET',
@@ -1380,6 +2379,876 @@ test('live owner -> tenant -> simulated payment flow issues a verifiable receipt
   assert.equal(verifyResponse.statusCode, 200);
   assert.equal(verifyResponse.json().data.valid, true);
   assert.equal(verifyResponse.json().data.receipt.receiptNumber, receipt.receiptNumber);
+
+  await app.close();
+});
+
+test('owner billing account uses 10 EUR six-week access and simulated payment extends early from current period end', async () => {
+  const { app, repository } = await buildTestApp({
+    owners: new Map([
+      [
+        'owner-1',
+        {
+          agencyId: 'agency-1',
+          createdAt: '2026-04-20T10:00:00.000Z',
+          displayName: 'Owner User',
+          updatedAt: '2026-04-20T10:00:00.000Z',
+          userId: 'owner-1',
+        },
+      ],
+    ]),
+    users: new Map([
+      [
+        'owner-1',
+        buildUser({
+          agencyId: 'agency-1',
+          email: 'owner@example.com',
+          ownerId: 'owner-1',
+          role: 'owner',
+          uid: 'owner-1',
+        }),
+      ],
+    ]),
+  });
+
+  const summaryResponse = await app.inject({
+    headers: {
+      authorization: 'Bearer owner-token',
+    },
+    method: 'GET',
+    url: '/v1/owner/billing',
+  });
+
+  assert.equal(summaryResponse.statusCode, 200);
+  assert.equal(summaryResponse.json().data.feeAmount, 10);
+  assert.equal(summaryResponse.json().data.feeCurrency, 'EUR');
+  assert.equal(summaryResponse.json().data.intervalDays, 42);
+  assert.equal(summaryResponse.json().data.account.status, 'active');
+  assert.equal(summaryResponse.json().data.activeUntil, '2026-06-03T10:00:00.000Z');
+
+  const payResponse = await app.inject({
+    headers: {
+      authorization: 'Bearer owner-token',
+    },
+    method: 'POST',
+    url: '/v1/owner/billing/pay-simulated',
+  });
+
+  assert.equal(payResponse.statusCode, 200);
+  assert.equal(payResponse.json().data.latestInvoice.status, 'paid');
+  assert.equal(payResponse.json().data.activeUntil, '2026-07-15T10:00:00.000Z');
+  assert.equal(repository.state.ownerBillingInvoices.size, 1);
+  assert.equal(repository.state.ownerBillingPayments.size, 1);
+
+  await app.close();
+});
+
+test('production simulated owner fee payment returns 403', async () => {
+  const { app, repository } = await buildTestApp(buildOwnerBillingUserSeed(), {
+    config: {
+      appVariant: 'production',
+      paymentProvider: 'simulated',
+    },
+  });
+
+  const payResponse = await app.inject({
+    headers: {
+      authorization: 'Bearer owner-token',
+    },
+    method: 'POST',
+    url: '/v1/owner/billing/pay-simulated',
+  });
+
+  assert.equal(payResponse.statusCode, 403);
+  assert.equal(payResponse.json().error.code, 'owner_billing_simulation_disabled');
+  assert.equal(repository.state.ownerBillingInvoices.size, 0);
+  assert.equal(repository.state.ownerBillingPayments.size, 0);
+
+  await app.close();
+});
+
+test('development simulated owner fee payment still works', async () => {
+  const { app } = await buildTestApp(buildOwnerBillingUserSeed(), {
+    config: {
+      appVariant: 'development',
+      paymentProvider: 'simulated',
+    },
+  });
+
+  const payResponse = await app.inject({
+    headers: {
+      authorization: 'Bearer owner-token',
+    },
+    method: 'POST',
+    url: '/v1/owner/billing/pay-simulated',
+  });
+
+  assert.equal(payResponse.statusCode, 200);
+  assert.equal(payResponse.json().data.latestInvoice.status, 'paid');
+
+  await app.close();
+});
+
+test('preview simulated owner fee payment still works', async () => {
+  const { app } = await buildTestApp(buildOwnerBillingUserSeed(), {
+    config: {
+      appVariant: 'preview',
+      paymentProvider: 'manual',
+    },
+  });
+
+  const payResponse = await app.inject({
+    headers: {
+      authorization: 'Bearer owner-token',
+    },
+    method: 'POST',
+    url: '/v1/owner/billing/pay-simulated',
+  });
+
+  assert.equal(payResponse.statusCode, 200);
+  assert.equal(payResponse.json().data.latestInvoice.status, 'paid');
+
+  await app.close();
+});
+
+for (const billingStatus of ['active', 'grace_period', 'past_due'] as const) {
+  test(`tenant rent payment still works when owner billing is ${billingStatus}`, async () => {
+    const { app } = await buildTestApp(buildOwnerBillingPaymentSeed(billingStatus));
+
+    const paymentResponse = await app.inject({
+      headers: {
+        authorization: 'Bearer tenant-token',
+      },
+      method: 'POST',
+      payload: {
+        paymentMethod: 'Bankily',
+      },
+      url: '/v1/payments/payment-1/simulate-complete',
+    });
+
+    assert.equal(paymentResponse.statusCode, 200);
+    assert.equal(paymentResponse.json().data.payment.agencyFeeAmount, 0);
+    assert.equal(paymentResponse.json().data.payment.commissionRate, 0);
+    assert.equal(paymentResponse.json().data.payment.ownerReceivableAmount, 200000);
+    assert.equal(paymentResponse.json().data.payment.paymentStatus, 'paid');
+
+    await app.close();
+  });
+}
+
+test('past due owner billing blocks new invites without blocking tenant rent payment', async () => {
+  const { app } = await buildTestApp({
+    ownerBillingAccounts: new Map([
+      [
+        'owner-1',
+        {
+          agencyId: 'agency-1',
+          createdAt: '2026-01-01T10:00:00.000Z',
+          currentPeriodEnd: '2026-03-01T10:00:00.000Z',
+          currentPeriodStart: '2026-01-19T10:00:00.000Z',
+          feeAmount: 10,
+          feeCurrency: 'EUR',
+          gracePeriodEndsAt: '2026-03-08T10:00:00.000Z',
+          intervalDays: 42,
+          nextPaymentDueAt: '2026-03-01T10:00:00.000Z',
+          ownerId: 'owner-1',
+          status: 'past_due',
+          updatedAt: '2026-03-08T10:00:00.000Z',
+        },
+      ],
+    ]),
+    owners: new Map([
+      [
+        'owner-1',
+        {
+          agencyId: 'agency-1',
+          createdAt: '2026-04-20T10:00:00.000Z',
+          displayName: 'Owner User',
+          updatedAt: '2026-04-20T10:00:00.000Z',
+          userId: 'owner-1',
+        },
+      ],
+    ]),
+    properties: new Map([
+      [
+        'property-1',
+        {
+          address: 'Tevragh-Zeina',
+          createdAt: '2026-04-20T10:00:00.000Z',
+          label: 'Résidence Alpha',
+          ownerId: 'owner-1',
+          updatedAt: '2026-04-20T10:00:00.000Z',
+        },
+      ],
+    ]),
+    rentPayments: new Map([
+      [
+        'payment-1',
+        {
+          agencyFeeAmount: 0,
+          agencyId: 'agency-1',
+          commissionRate: 0,
+          createdAt: '2026-04-20T10:00:00.000Z',
+          dueDate: '2026-04-05',
+          grossAmount: 200000,
+          monthKey: '2026-04',
+          ownerId: 'owner-1',
+          ownerNetAmount: 200000,
+          ownerReceivableAmount: 200000,
+          paidAt: null,
+          paymentMethod: null,
+          paymentStatus: 'pending',
+          platformRentFeeAmount: 0,
+          propertyId: 'property-1',
+          providerReference: null,
+          receiptId: null,
+          rentAmount: 200000,
+          tenantFeeAmount: 0,
+          tenantId: 'tenant-1',
+          unitId: 'unit-1',
+          updatedAt: '2026-04-20T10:00:00.000Z',
+        },
+      ],
+    ]),
+    tenants: new Map([
+      [
+        'tenant-1',
+        {
+          createdAt: '2026-04-20T10:00:00.000Z',
+          displayName: 'Tenant User',
+          email: 'tenant@example.com',
+          ownerId: 'owner-1',
+          propertyId: 'property-1',
+          status: 'active',
+          unitId: 'unit-1',
+          updatedAt: '2026-04-20T10:00:00.000Z',
+          userId: 'tenant-1',
+        },
+      ],
+    ]),
+    units: new Map([
+      [
+        'unit-1',
+        {
+          activeInviteId: null,
+          createdAt: '2026-04-20T10:00:00.000Z',
+          currency: 'MRU',
+          label: 'A1',
+          ownerId: 'owner-1',
+          propertyId: 'property-1',
+          rentAmount: 200000,
+          status: 'occupied',
+          tenantId: 'tenant-1',
+          updatedAt: '2026-04-20T10:00:00.000Z',
+        },
+      ],
+      [
+        'unit-2',
+        {
+          activeInviteId: null,
+          createdAt: '2026-04-20T10:00:00.000Z',
+          currency: 'MRU',
+          label: 'A2',
+          ownerId: 'owner-1',
+          propertyId: 'property-1',
+          rentAmount: 150000,
+          status: 'vacant',
+          tenantId: null,
+          updatedAt: '2026-04-20T10:00:00.000Z',
+        },
+      ],
+    ]),
+    users: new Map([
+      [
+        'owner-1',
+        buildUser({
+          agencyId: 'agency-1',
+          email: 'owner@example.com',
+          ownerId: 'owner-1',
+          role: 'owner',
+          uid: 'owner-1',
+        }),
+      ],
+      [
+        'tenant-1',
+        buildUser({
+          agencyId: 'agency-1',
+          email: 'tenant@example.com',
+          ownerId: 'owner-1',
+          role: 'tenant',
+          tenantId: 'tenant-1',
+          uid: 'tenant-1',
+        }),
+      ],
+    ]),
+  });
+
+  const inviteResponse = await app.inject({
+    headers: {
+      authorization: 'Bearer owner-token',
+    },
+    method: 'POST',
+    payload: {
+      inviteType: 'code' satisfies InviteType,
+      unitId: 'unit-2',
+    },
+    url: '/v1/invites',
+  });
+
+  assert.equal(inviteResponse.statusCode, 402);
+  assert.equal(inviteResponse.json().error.code, 'owner_billing_past_due');
+
+  const paymentResponse = await app.inject({
+    headers: {
+      authorization: 'Bearer tenant-token',
+    },
+    method: 'POST',
+    payload: {
+      paymentMethod: 'Bankily',
+    },
+    url: '/v1/payments/payment-1/simulate-complete',
+  });
+
+  assert.equal(paymentResponse.statusCode, 200);
+  assert.equal(paymentResponse.json().data.payment.agencyFeeAmount, 0);
+  assert.equal(paymentResponse.json().data.payment.ownerNetAmount, 200000);
+
+  await app.close();
+});
+
+test('suspended owner billing blocks owner writes while tenant receipts remain readable', async () => {
+  const { app, repository } = await buildTestApp({
+    ownerBillingAccounts: new Map([
+      [
+        'owner-1',
+        {
+          agencyId: 'agency-1',
+          createdAt: '2026-01-01T10:00:00.000Z',
+          currentPeriodEnd: '2026-03-01T10:00:00.000Z',
+          currentPeriodStart: '2026-01-19T10:00:00.000Z',
+          feeAmount: 10,
+          feeCurrency: 'EUR',
+          gracePeriodEndsAt: '2026-03-08T10:00:00.000Z',
+          intervalDays: 42,
+          nextPaymentDueAt: '2026-03-01T10:00:00.000Z',
+          ownerId: 'owner-1',
+          status: 'suspended',
+          updatedAt: '2026-03-08T10:00:00.000Z',
+        },
+      ],
+    ]),
+    owners: new Map([
+      [
+        'owner-1',
+        {
+          agencyId: 'agency-1',
+          createdAt: '2026-04-20T10:00:00.000Z',
+          displayName: 'Owner User',
+          updatedAt: '2026-04-20T10:00:00.000Z',
+          userId: 'owner-1',
+        },
+      ],
+    ]),
+    properties: new Map([
+      [
+        'property-1',
+        {
+          address: 'Tevragh-Zeina',
+          createdAt: '2026-04-20T10:00:00.000Z',
+          label: 'Résidence Alpha',
+          ownerId: 'owner-1',
+          updatedAt: '2026-04-20T10:00:00.000Z',
+        },
+      ],
+    ]),
+    receipts: new Map([
+      [
+        'receipt-1',
+        {
+          agencyDisplayName: 'Agence Test',
+          agencyFeeAmount: 0,
+          agencyId: 'agency-1',
+          grossAmount: 200000,
+          id: 'receipt-1',
+          issuanceSource: 'simulate-complete',
+          issuedAt: '2026-04-21T10:00:00.000Z',
+          issuedBy: 'backend',
+          ownerDisplayName: 'Owner User',
+          ownerEmail: 'owner@example.com',
+          ownerId: 'owner-1',
+          ownerNetAmount: 200000,
+          paidAt: '2026-04-21T10:00:00.000Z',
+          paymentId: 'payment-1',
+          paymentMethod: 'Bankily',
+          paymentStatus: 'paid',
+          propertyId: 'property-1',
+          propertyLabel: 'Résidence Alpha',
+          qrVerificationToken: 'receipt-token-12345678',
+          receiptNumber: 'ATP-20260421-0001',
+          simulated: true,
+          tenantDisplayName: 'Tenant User',
+          tenantEmail: 'tenant@example.com',
+          tenantId: 'tenant-1',
+          unitId: 'unit-1',
+          unitLabel: 'A1',
+          verificationUrl: 'atoupay://receipt-verification?token=receipt-token-12345678',
+        },
+      ],
+    ]),
+    rentPayments: new Map([
+      [
+        'payment-1',
+        {
+          agencyFeeAmount: 0,
+          agencyId: 'agency-1',
+          commissionRate: 0,
+          createdAt: '2026-04-20T10:00:00.000Z',
+          dueDate: '2026-04-05',
+          grossAmount: 200000,
+          monthKey: '2026-04',
+          ownerId: 'owner-1',
+          ownerNetAmount: 200000,
+          ownerReceivableAmount: 200000,
+          paidAt: '2026-04-21T10:00:00.000Z',
+          paymentMethod: 'Bankily',
+          paymentStatus: 'paid',
+          platformRentFeeAmount: 0,
+          propertyId: 'property-1',
+          providerReference: 'SIM-123',
+          receiptId: 'receipt-1',
+          rentAmount: 200000,
+          tenantFeeAmount: 0,
+          tenantId: 'tenant-1',
+          unitId: 'unit-1',
+          updatedAt: '2026-04-21T10:00:00.000Z',
+        },
+      ],
+    ]),
+    tenants: new Map([
+      [
+        'tenant-1',
+        {
+          createdAt: '2026-04-20T10:00:00.000Z',
+          displayName: 'Tenant User',
+          email: 'tenant@example.com',
+          ownerId: 'owner-1',
+          propertyId: 'property-1',
+          status: 'active',
+          unitId: 'unit-1',
+          updatedAt: '2026-04-20T10:00:00.000Z',
+          userId: 'tenant-1',
+        },
+      ],
+    ]),
+    units: new Map([
+      [
+        'unit-1',
+        {
+          activeInviteId: null,
+          createdAt: '2026-04-20T10:00:00.000Z',
+          currency: 'MRU',
+          label: 'A1',
+          ownerId: 'owner-1',
+          propertyId: 'property-1',
+          rentAmount: 200000,
+          status: 'vacant',
+          tenantId: null,
+          updatedAt: '2026-04-20T10:00:00.000Z',
+        },
+      ],
+    ]),
+    users: new Map([
+      [
+        'owner-1',
+        buildUser({
+          agencyId: 'agency-1',
+          email: 'owner@example.com',
+          ownerId: 'owner-1',
+          role: 'owner',
+          uid: 'owner-1',
+        }),
+      ],
+      [
+        'tenant-1',
+        buildUser({
+          agencyId: 'agency-1',
+          email: 'tenant@example.com',
+          ownerId: 'owner-1',
+          role: 'tenant',
+          tenantId: 'tenant-1',
+          uid: 'tenant-1',
+        }),
+      ],
+    ]),
+  });
+
+  const createPropertyResponse = await app.inject({
+    headers: {
+      authorization: 'Bearer owner-token',
+    },
+    method: 'POST',
+    payload: {
+      address: 'Ksar',
+      label: 'Résidence Bloquée',
+    },
+    url: '/v1/owner/properties',
+  });
+
+  assert.equal(createPropertyResponse.statusCode, 403);
+  assert.equal(createPropertyResponse.json().error.code, 'owner_billing_suspended');
+
+  const createUnitResponse = await app.inject({
+    headers: {
+      authorization: 'Bearer owner-token',
+    },
+    method: 'POST',
+    payload: {
+      currency: 'MRU',
+      label: 'A2',
+      propertyId: 'property-1',
+      rentAmount: 150000,
+    },
+    url: '/v1/owner/units',
+  });
+
+  assert.equal(createUnitResponse.statusCode, 403);
+  assert.equal(createUnitResponse.json().error.code, 'owner_billing_suspended');
+
+  const inviteResponse = await app.inject({
+    headers: {
+      authorization: 'Bearer owner-token',
+    },
+    method: 'POST',
+    payload: {
+      inviteType: 'code' satisfies InviteType,
+      unitId: 'unit-1',
+    },
+    url: '/v1/invites',
+  });
+
+  assert.equal(inviteResponse.statusCode, 403);
+  assert.equal(inviteResponse.json().error.code, 'owner_billing_suspended');
+
+  const tenantReceiptResponse = await app.inject({
+    headers: {
+      authorization: 'Bearer tenant-token',
+    },
+    method: 'GET',
+    url: '/v1/receipts/receipt-1',
+  });
+
+  assert.equal(tenantReceiptResponse.statusCode, 200);
+  assert.equal(tenantReceiptResponse.json().data.receiptNumber, 'ATP-20260421-0001');
+
+  const verifyResponse = await app.inject({
+    method: 'GET',
+    url: '/v1/receipts/verify/receipt-token-12345678',
+  });
+
+  assert.equal(verifyResponse.statusCode, 200);
+  assert.equal(verifyResponse.json().data.valid, true);
+
+  const storedPayment = repository.state.rentPayments.get('payment-1');
+  assert.equal(storedPayment?.paymentStatus, 'paid');
+  assert.equal(storedPayment?.agencyFeeAmount, 0);
+  assert.equal(storedPayment?.ownerReceivableAmount, 200000);
+
+  await app.close();
+});
+
+test('grace period owner billing still allows owner management writes', async () => {
+  const { app } = await buildTestApp({
+    ownerBillingAccounts: new Map([
+      [
+        'owner-1',
+        {
+          agencyId: 'agency-1',
+          createdAt: '2026-01-01T10:00:00.000Z',
+          currentPeriodEnd: '2026-04-20T10:00:00.000Z',
+          currentPeriodStart: '2026-03-09T10:00:00.000Z',
+          feeAmount: 10,
+          feeCurrency: 'EUR',
+          gracePeriodEndsAt: '2026-04-27T10:00:00.000Z',
+          intervalDays: 42,
+          nextPaymentDueAt: '2026-04-20T10:00:00.000Z',
+          ownerId: 'owner-1',
+          status: 'grace_period',
+          updatedAt: '2026-04-20T10:00:00.000Z',
+        },
+      ],
+    ]),
+    owners: new Map([
+      [
+        'owner-1',
+        {
+          agencyId: 'agency-1',
+          createdAt: '2026-04-20T10:00:00.000Z',
+          displayName: 'Owner User',
+          updatedAt: '2026-04-20T10:00:00.000Z',
+          userId: 'owner-1',
+        },
+      ],
+    ]),
+    properties: new Map([
+      [
+        'property-1',
+        {
+          address: 'Tevragh-Zeina',
+          createdAt: '2026-04-20T10:00:00.000Z',
+          label: 'Résidence Alpha',
+          ownerId: 'owner-1',
+          updatedAt: '2026-04-20T10:00:00.000Z',
+        },
+      ],
+    ]),
+    units: new Map([
+      [
+        'unit-1',
+        {
+          activeInviteId: null,
+          createdAt: '2026-04-20T10:00:00.000Z',
+          currency: 'MRU',
+          label: 'A1',
+          ownerId: 'owner-1',
+          propertyId: 'property-1',
+          rentAmount: 200000,
+          status: 'vacant',
+          tenantId: null,
+          updatedAt: '2026-04-20T10:00:00.000Z',
+        },
+      ],
+    ]),
+    users: new Map([
+      [
+        'owner-1',
+        buildUser({
+          agencyId: 'agency-1',
+          email: 'owner@example.com',
+          ownerId: 'owner-1',
+          role: 'owner',
+          uid: 'owner-1',
+        }),
+      ],
+    ]),
+  });
+
+  const createPropertyResponse = await app.inject({
+    headers: {
+      authorization: 'Bearer owner-token',
+    },
+    method: 'POST',
+    payload: {
+      address: 'Ksar',
+      label: 'Résidence Grace',
+    },
+    url: '/v1/owner/properties',
+  });
+
+  assert.equal(createPropertyResponse.statusCode, 201);
+
+  const createUnitResponse = await app.inject({
+    headers: {
+      authorization: 'Bearer owner-token',
+    },
+    method: 'POST',
+    payload: {
+      currency: 'MRU',
+      label: 'A2',
+      propertyId: 'property-1',
+      rentAmount: 150000,
+    },
+    url: '/v1/owner/units',
+  });
+
+  assert.equal(createUnitResponse.statusCode, 201);
+
+  const inviteResponse = await app.inject({
+    headers: {
+      authorization: 'Bearer owner-token',
+    },
+    method: 'POST',
+    payload: {
+      inviteType: 'code' satisfies InviteType,
+      unitId: 'unit-1',
+    },
+    url: '/v1/invites',
+  });
+
+  assert.equal(inviteResponse.statusCode, 201);
+
+  await app.close();
+});
+
+test('agency admin can mark owner access fee paid and suspend or reactivate billing', async () => {
+  const { app, repository } = await buildTestApp({
+    owners: new Map([
+      [
+        'owner-1',
+        {
+          agencyId: 'agency-1',
+          createdAt: '2026-04-20T10:00:00.000Z',
+          displayName: 'Owner User',
+          updatedAt: '2026-04-20T10:00:00.000Z',
+          userId: 'owner-1',
+        },
+      ],
+    ]),
+    users: new Map([
+      [
+        'admin-1',
+        buildUser({
+          agencyId: 'agency-1',
+          email: 'admin@example.com',
+          role: 'agency_admin',
+          uid: 'admin-1',
+        }),
+      ],
+      [
+        'owner-1',
+        buildUser({
+          agencyId: 'agency-1',
+          email: 'owner@example.com',
+          ownerId: 'owner-1',
+          role: 'owner',
+          uid: 'owner-1',
+        }),
+      ],
+    ]),
+  });
+
+  const markPaidResponse = await app.inject({
+    headers: {
+      authorization: 'Bearer admin-token',
+    },
+    method: 'POST',
+    payload: {
+      note: 'Paiement manuel reçu.',
+      provider: 'manual',
+    },
+    url: '/v1/agency/owners/owner-1/billing/mark-paid',
+  });
+
+  assert.equal(markPaidResponse.statusCode, 200);
+  assert.equal(markPaidResponse.json().data.latestInvoice.status, 'paid');
+  assert.equal(repository.state.ownerBillingPayments.size, 1);
+
+  const suspendResponse = await app.inject({
+    headers: {
+      authorization: 'Bearer admin-token',
+    },
+    method: 'POST',
+    payload: {
+      reason: 'Contrôle agence.',
+    },
+    url: '/v1/agency/owners/owner-1/billing/suspend',
+  });
+
+  assert.equal(suspendResponse.statusCode, 200);
+  assert.equal(suspendResponse.json().data.account.status, 'suspended');
+
+  const reactivateResponse = await app.inject({
+    headers: {
+      authorization: 'Bearer admin-token',
+    },
+    method: 'POST',
+    url: '/v1/agency/owners/owner-1/billing/reactivate',
+  });
+
+  assert.equal(reactivateResponse.statusCode, 200);
+  assert.equal(reactivateResponse.json().data.account.status, 'active');
+  assert.equal(repository.state.auditLogs.size, 3);
+  assert.equal(repository.state.notifications.size, 3);
+
+  await app.close();
+});
+
+test('late manual owner billing payment extends from now and reactivation preserves expired status', async () => {
+  const expiredAccount: OwnerBillingAccount = {
+    agencyId: 'agency-1',
+    createdAt: '2026-01-01T10:00:00.000Z',
+    currentPeriodEnd: '2026-03-01T10:00:00.000Z',
+    currentPeriodStart: '2026-01-19T10:00:00.000Z',
+    feeAmount: 10,
+    feeCurrency: 'EUR',
+    gracePeriodEndsAt: '2026-03-08T10:00:00.000Z',
+    intervalDays: 42,
+    nextPaymentDueAt: '2026-03-01T10:00:00.000Z',
+    ownerId: 'owner-1',
+    status: 'past_due',
+    updatedAt: '2026-03-08T10:00:00.000Z',
+  };
+  const { app, repository } = await buildTestApp({
+    ownerBillingAccounts: new Map([['owner-1', expiredAccount]]),
+    owners: new Map([
+      [
+        'owner-1',
+        {
+          agencyId: 'agency-1',
+          createdAt: '2026-04-20T10:00:00.000Z',
+          displayName: 'Owner User',
+          updatedAt: '2026-04-20T10:00:00.000Z',
+          userId: 'owner-1',
+        },
+      ],
+    ]),
+    users: new Map([
+      [
+        'admin-1',
+        buildUser({
+          agencyId: 'agency-1',
+          email: 'admin@example.com',
+          role: 'agency_admin',
+          uid: 'admin-1',
+        }),
+      ],
+      [
+        'owner-1',
+        buildUser({
+          agencyId: 'agency-1',
+          email: 'owner@example.com',
+          ownerId: 'owner-1',
+          role: 'owner',
+          uid: 'owner-1',
+        }),
+      ],
+    ]),
+  });
+
+  const markPaidResponse = await app.inject({
+    headers: {
+      authorization: 'Bearer admin-token',
+    },
+    method: 'POST',
+    payload: {
+      note: 'Paiement reçu après échéance.',
+      provider: 'manual',
+    },
+    url: '/v1/agency/owners/owner-1/billing/mark-paid',
+  });
+
+  assert.equal(markPaidResponse.statusCode, 200);
+  assert.equal(markPaidResponse.json().data.activeUntil, '2026-06-03T10:00:00.000Z');
+  assert.equal(repository.state.ownerBillingAccounts.get('owner-1')?.currentPeriodStart, '2026-04-22T10:00:00.000Z');
+  assert.equal(repository.state.ownerBillingAccounts.get('owner-1')?.currentPeriodEnd, '2026-06-03T10:00:00.000Z');
+  assert.equal(repository.state.ownerBillingPayments.size, 1);
+
+  repository.state.ownerBillingAccounts.set('owner-1', {
+    ...expiredAccount,
+    status: 'suspended',
+    updatedAt: '2026-04-22T10:00:00.000Z',
+  });
+
+  const reactivateResponse = await app.inject({
+    headers: {
+      authorization: 'Bearer admin-token',
+    },
+    method: 'POST',
+    url: '/v1/agency/owners/owner-1/billing/reactivate',
+  });
+
+  assert.equal(reactivateResponse.statusCode, 200);
+  assert.equal(reactivateResponse.json().data.account.status, 'past_due');
+  assert.equal(reactivateResponse.json().data.activeUntil, '2026-03-01T10:00:00.000Z');
 
   await app.close();
 });

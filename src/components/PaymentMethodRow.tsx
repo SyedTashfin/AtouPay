@@ -2,6 +2,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { PaymentProvider } from '@/src/types';
+import { useI18n } from '@/src/i18n/I18nProvider';
 import { colors } from '@/src/theme/colors';
 import { radius } from '@/src/theme/radius';
 import { shadows } from '@/src/theme/shadows';
@@ -28,10 +29,12 @@ export function PaymentMethodRow({
   selected,
   onPress,
 }: PaymentMethodRowProps) {
+  const { copy, isRtl } = useI18n();
+
   return (
     <Pressable
-      accessibilityHint="Sélectionne ce moyen de paiement pour le loyer"
-      accessibilityLabel={`Méthode ${method}`}
+      accessibilityHint={copy('Sélectionne ce moyen de paiement pour le loyer')}
+      accessibilityLabel={`${copy('Méthode')} ${copy(method)}`}
       accessibilityRole="button"
       accessibilityState={{ disabled, selected }}
       disabled={disabled}
@@ -42,7 +45,7 @@ export function PaymentMethodRow({
         disabled && styles.disabled,
         pressed && styles.pressed,
       ]}>
-      <View style={styles.leading}>
+      <View style={[styles.leading, isRtl && styles.leadingRtl]}>
         <View style={[styles.iconWrap, selected && styles.iconWrapSelected]}>
           <MaterialCommunityIcons
             color={selected ? colors.surface : colors.primaryDark}
@@ -51,8 +54,10 @@ export function PaymentMethodRow({
           />
         </View>
         <View style={styles.copy}>
-          <Text style={styles.title}>{method}</Text>
-          <Text style={styles.subtitle}>Paiement simulé localement</Text>
+          <Text style={[styles.title, isRtl && styles.rtlText]}>{copy(method)}</Text>
+          <Text style={[styles.subtitle, isRtl && styles.rtlText]}>
+            {copy('Paiement simulé localement')}
+          </Text>
         </View>
       </View>
       <View style={[styles.radioOuter, selected && styles.radioOuterSelected]}>
@@ -92,6 +97,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flex: 1,
     gap: spacing.sm,
+  },
+  leadingRtl: {
+    flexDirection: 'row-reverse',
   },
   copy: {
     flex: 1,
@@ -135,5 +143,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     height: 10,
     width: 10,
+  },
+  rtlText: {
+    writingDirection: 'rtl',
   },
 });

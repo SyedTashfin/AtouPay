@@ -9,6 +9,7 @@ import { AuthCard } from '@/src/components/auth/AuthCard';
 import { AuthField, AuthFieldAccessoryButton } from '@/src/components/auth/AuthField';
 import { AuthScreen } from '@/src/components/auth/AuthScreen';
 import { useSession } from '@/src/context/SessionProvider';
+import { useI18n } from '@/src/i18n/I18nProvider';
 import { linkPasswordToCurrentUser } from '@/src/services/firebaseAuth';
 import { colors } from '@/src/theme/colors';
 import { typography } from '@/src/theme/typography';
@@ -23,6 +24,7 @@ export default function LinkPasswordScreen() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const { session, switchRole } = useSession();
+  const { copy } = useI18n();
 
   const accountEmail = session?.profile?.email ?? '';
   const alreadyLinked = session?.authProviders?.includes('password') ?? false;
@@ -158,7 +160,7 @@ export default function LinkPasswordScreen() {
         />
 
         <Pressable accessibilityRole="button" onPress={() => router.back()} style={({ pressed }) => pressed && styles.pressed}>
-          <Text style={styles.linkText}>Retour au profil</Text>
+          <Text style={styles.linkText}>{copy('Retour au profil')}</Text>
         </Pressable>
       </AuthCard>
     </AuthScreen>

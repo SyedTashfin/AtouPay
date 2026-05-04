@@ -35,19 +35,16 @@ export default function OwnerPaymentsScreen() {
   const currentMonthPayments = ownerPayments.filter((payment) => payment.monthKey === currentMonthKey);
   const totalCollected = currentMonthPayments
     .filter((payment) => payment.status === 'paid')
-    .reduce((total, payment) => total + (payment.ownerNetAmount ?? payment.amount), 0);
+    .reduce((total, payment) => total + (payment.ownerReceivableAmount ?? payment.rentAmount ?? payment.amount), 0);
   const totalGrossCollected = currentMonthPayments
     .filter((payment) => payment.status === 'paid')
     .reduce((total, payment) => total + (payment.grossAmount ?? payment.amount), 0);
-  const totalAgencyFees = currentMonthPayments
-    .filter((payment) => payment.status === 'paid')
-    .reduce((total, payment) => total + (payment.agencyFeeAmount ?? 0), 0);
   const totalPending = currentMonthPayments
     .filter((payment) => payment.status === 'pending')
-    .reduce((total, payment) => total + (payment.ownerNetAmount ?? payment.amount), 0);
+    .reduce((total, payment) => total + (payment.ownerReceivableAmount ?? payment.rentAmount ?? payment.amount), 0);
   const totalLate = currentMonthPayments
     .filter((payment) => payment.status === 'late')
-    .reduce((total, payment) => total + (payment.ownerNetAmount ?? payment.amount), 0);
+    .reduce((total, payment) => total + (payment.ownerReceivableAmount ?? payment.rentAmount ?? payment.amount), 0);
 
   const filteredPayments = ownerPayments.filter((payment) => {
     const propertyMatches =
@@ -84,9 +81,9 @@ export default function OwnerPaymentsScreen() {
             <View style={styles.summaryGrid}>
               <SummaryCard
                 compact
-                helper={`Brut ${formatCurrency(totalGrossCollected)} • Commission ${formatCurrency(totalAgencyFees)}`}
+                helper={`Loyer ${formatCurrency(totalGrossCollected)} • Aucun frais locataire`}
                 subtitle="Mois en cours"
-                title="Net encaissé"
+                title="Loyer encaissé"
                 value={formatCurrency(totalCollected)}
               />
               <SummaryCard
@@ -174,7 +171,7 @@ export default function OwnerPaymentsScreen() {
 
 const styles = StyleSheet.create({
   safeArea: {
-    backgroundColor: colors.background,
+    backgroundColor: colors.role.owner.background,
     flex: 1,
   },
   content: {

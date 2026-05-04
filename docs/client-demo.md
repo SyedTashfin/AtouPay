@@ -5,16 +5,37 @@ This demo is designed so the main client walkthrough does not depend on single-u
 ## Runtime
 
 - Android app: `ATouPay Preview`
+- Latest tested APK: `https://expo.dev/artifacts/eas/xnCz6kseHEpnrzKcUQ7Eqt.apk`
 - Backend: `https://atoupay-backend-ev67wqijcq-ew.a.run.app`
 - Payments: simulated only; no real debit or settlement happens.
 
+## Lightweight Android Build
+
+Use the optimized client-demo APK command before sharing a new Android file:
+
+```bash
+npm run android:client-demo:build
+```
+
+Expected output:
+
+- APK path: `android/app/build/outputs/apk/release/app-release.apk`
+- Target device ABI: `arm64-v8a`
+- Current measured size: about `37M`
+- Permissions: internet/network only; no contacts, SMS, camera, call-phone, or storage permissions.
+
+Do not send the old universal APK as the client demo artifact. The universal APK bundles
+multiple CPU architectures and was measured above the client’s `<50M` target.
+
 ## Demo Accounts
 
-Use the shared demo password provided out-of-band.
+Use the shared demo password `AtouPayDemo2026`. The client-demo APK also includes a
+role-specific **Remplir le compte démo** button that fills the correct e-mail and
+password automatically.
 
 | Account | Email | State | Purpose |
 | --- | --- | --- | --- |
-| Agency admin | `client.agency@example.com` | Active | Agency dashboard, owner invites, commission/support views |
+| Agency admin | `client.agency@example.com` | Active | Agency dashboard, owner invites, owner billing/support views |
 | Owner | `client.owner@example.com` | Active | Main owner demo path |
 | Tenant | `client.tenant@example.com` | Active and already attached to a unit | Main tenant demo path |
 | Blocked owner | `client.blocked.owner@example.com` | Pending owner access | Optional blocked-owner activation demo only |
@@ -23,11 +44,12 @@ Use the shared demo password provided out-of-band.
 ## Recommended Client Walkthrough
 
 1. Install the Android APK.
-2. Open the app normally.
-3. For tenant testing, choose `Locataire`, sign in as `client.tenant@example.com`, view the assigned unit and pending simulated rent, then run the simulated payment flow.
-4. For owner testing, choose `Propriétaire`, sign in as `client.owner@example.com`, view the existing property, occupied unit, tenant/payment summaries, and optionally generate a new tenant invite without redeeming it.
-5. For agency testing, open `atoupay://auth/agency` after installing the APK, then sign in as `client.agency@example.com`.
-6. Confirm the public role picker only shows tenant and owner; agency access is a dedicated admin entry.
+2. If an older `ATouPay Preview` is already installed, uninstall it first, then install the latest APK.
+3. Open the app normally.
+4. For tenant testing, choose `Locataire`, tap `Remplir le compte démo locataire`, then `Se connecter`. View the assigned unit and pending simulated rent, then run the simulated payment flow.
+5. For owner testing, choose `Propriétaire`, tap `Remplir le compte démo propriétaire`, then `Se connecter`. View the existing property, occupied unit, tenant/payment summaries, and optionally generate a new tenant invite without redeeming it.
+6. For agency testing, choose either `Locataire` or `Propriétaire`, then sign in with `client.agency@example.com`. The backend profile resolves the account as `agency_admin` and opens the agency area automatically.
+7. Confirm the public role picker only shows tenant and owner; agency access is credential/profile-driven, not a visible public role.
 
 ## Optional Invite Tests
 

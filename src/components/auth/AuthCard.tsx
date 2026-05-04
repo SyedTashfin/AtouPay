@@ -6,6 +6,7 @@ import { radius } from '@/src/theme/radius';
 import { shadows } from '@/src/theme/shadows';
 import { spacing } from '@/src/theme/spacing';
 import { typography } from '@/src/theme/typography';
+import { useI18n } from '@/src/i18n/I18nProvider';
 
 interface AuthCardProps extends PropsWithChildren {
   description?: string;
@@ -13,12 +14,16 @@ interface AuthCardProps extends PropsWithChildren {
 }
 
 export function AuthCard({ children, description, title }: AuthCardProps) {
+  const { copy, isRtl } = useI18n();
+
   return (
     <View style={styles.card}>
       {title ? (
         <View style={styles.header}>
-          <Text style={styles.title}>{title}</Text>
-          {description ? <Text style={styles.description}>{description}</Text> : null}
+          <Text style={[styles.title, isRtl && styles.rtlText]}>{copy(title)}</Text>
+          {description ? (
+            <Text style={[styles.description, isRtl && styles.rtlText]}>{copy(description)}</Text>
+          ) : null}
         </View>
       ) : null}
       {children}
@@ -28,14 +33,14 @@ export function AuthCard({ children, description, title }: AuthCardProps) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: colors.surfaceGlass,
+    backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: radius.xl,
+    borderRadius: radius.lg,
     borderWidth: 1,
     gap: spacing.sm,
     overflow: 'hidden',
     padding: spacing.md,
-    ...shadows.glass,
+    ...shadows.card,
   },
   header: {
     gap: spacing.xs,
@@ -47,5 +52,8 @@ const styles = StyleSheet.create({
   description: {
     color: colors.textMuted,
     ...typography.caption,
+  },
+  rtlText: {
+    writingDirection: 'rtl',
   },
 });

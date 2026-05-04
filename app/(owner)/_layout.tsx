@@ -10,16 +10,16 @@ export default function OwnerLayout() {
       screenOptions={{
         headerShown: false,
         sceneStyle: {
-          backgroundColor: colors.background,
+          backgroundColor: colors.role.owner.background,
         },
-        tabBarActiveTintColor: colors.primary,
+        tabBarActiveTintColor: colors.role.owner.active,
         tabBarInactiveTintColor: colors.textMuted,
         tabBarLabelStyle: {
           ...typography.caption,
         },
         tabBarStyle: {
-          backgroundColor: colors.surface,
-          borderTopColor: colors.border,
+          backgroundColor: colors.role.owner.surface,
+          borderTopColor: colors.role.owner.border,
           height: 68,
           paddingBottom: 8,
           paddingTop: 6,

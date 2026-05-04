@@ -9,6 +9,12 @@ This document defines the first backend slice to introduce on top of the current
 - the backend verifies the token with Firebase Admin SDK
 - Firestore remains the primary data store
 - payments are still simulated
+- tenants pay rent only
+- ATouPay charges no tenant fee
+- rent payments are not commission-split
+- owners pay a separate 10 EUR account access fee every 6 weeks
+- owner account fees are separate from rent payments, rent receipts, and tenant screens
+- real owner-fee payment provider integration is not enabled yet; current owner billing payment actions are simulated or manually recorded by an agency admin
 
 ## Common API Conventions
 
@@ -315,7 +321,7 @@ Agency-admin only. Optional query:
 
 Supported periods: `this_month`, `last_month`, `all`.
 
-Returns active owner/tenant counts, property/unit counts, pending owner invites, support request status counts, payment status counts, gross paid amount, agency fee amount, owner net amount, and current commission rate.
+Returns active owner/tenant counts, property/unit counts, pending owner invites, support request status counts, payment status counts, rent paid amount, zero tenant/platform rent fee fields, and deprecated commission fields fixed at zero for new records.
 
 ### `GET /v1/owner/dashboard`
 
@@ -327,7 +333,86 @@ Owner only. Optional query:
 }
 ```
 
-Returns property/unit/tenant counts, occupied/vacant units, payment status counts, gross paid amount, agency fee amount, and owner net amount.
+Returns property/unit/tenant counts, occupied/vacant units, payment status counts, rent paid amount, zero tenant/platform rent fee fields, and owner receivable amount.
+
+## 8. Owner Account Fee Model
+
+Owner account billing is a separate financial object from tenant rent.
+
+Rules:
+
+- tenants pay rent only
+- ATouPay charges no tenant fee
+- rent payments do not deduct agency commission
+- owners pay `10 EUR` every `42` days to keep the owner account active
+- owner billing has a `7` day grace period
+- owner billing records are stored separately from `rentPayments` and `receipts`
+- owner account fees never appear on tenant rent receipts
+- real owner-fee payment provider integration is not enabled yet; current owner billing payment actions are simulated or manually recorded by an agency admin
+- in local payment provider integrations, EUR may need to be charged as an MRU equivalent if the provider supports MRU only
+- real payment confirmation must come from backend/provider confirmation, not frontend success
+
+Firestore collections:
+
+- `ownerBillingAccounts/{ownerId}`
+- `ownerBillingInvoices/{invoiceId}`
+- `ownerBillingPayments/{billingPaymentId}`
+
+### `GET /v1/owner/billing`
+
+Owner only. Returns the current owner billing summary:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "account": {},
+    "latestInvoice": null,
+    "canManageProperties": true,
+    "canCreateInvites": true,
+    "feeAmount": 10,
+    "feeCurrency": "EUR",
+    "intervalDays": 42,
+    "nextPaymentDueAt": "2026-06-03T10:00:00.000Z",
+    "activeUntil": "2026-06-03T10:00:00.000Z",
+    "statusMessage": "Votre compte propriétaire est actif."
+  }
+}
+```
+
+### `POST /v1/owner/billing/pay-simulated`
+
+Owner only. Development/preview or simulated-provider only. Creates an open owner access invoice if needed, records a simulated payment, extends access by 42 days from the later of now or the current period end, and returns the updated summary.
+
+### `GET /v1/agency/owners/billing`
+
+Agency-admin only. Lists owners with billing account status, active-until date, next due date, latest invoice, and owner profile summary.
+
+### `POST /v1/agency/owners/{ownerId}/billing/mark-paid`
+
+Agency-admin only. Records a manual or simulated owner account fee payment.
+
+```json
+{
+  "provider": "manual",
+  "providerReference": "optional-reference",
+  "note": "Paiement reçu hors app."
+}
+```
+
+### `POST /v1/agency/owners/{ownerId}/billing/suspend`
+
+Agency-admin only. Suspends owner billing access and creates audit/notification records.
+
+```json
+{
+  "reason": "Contrôle agence."
+}
+```
+
+### `POST /v1/agency/owners/{ownerId}/billing/reactivate`
+
+Agency-admin only. Reactivates owner billing access and recalculates whether the account is active, in grace period, or past due based on the paid period.
 
 ### `GET /v1/agency/users`
 
@@ -357,7 +442,7 @@ Marks an accessible notification as read.
 
 Agency-admin only. Returns a recent minimal audit history for operational traceability. This is not a full SIEM or financial ledger.
 
-## 8. Future Read Endpoints
+## 9. Future Read Endpoints
 
 These are still optional because current app reads can remain on Firestore:
 

@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { PaymentRecord, ReceiptRecord } from '@/src/types';
+import { useI18n } from '@/src/i18n/I18nProvider';
 import { colors } from '@/src/theme/colors';
 import { radius } from '@/src/theme/radius';
 import { shadows } from '@/src/theme/shadows';
@@ -8,6 +9,7 @@ import { spacing } from '@/src/theme/spacing';
 import { typography } from '@/src/theme/typography';
 import { formatCurrency } from '@/src/utils/currency';
 import { formatDateTimeLabel, formatMonthLabel } from '@/src/utils/dates';
+import { isReceiptSimulated } from '@/src/utils/receipts';
 
 interface PaymentReceiptCardProps {
   payment: PaymentRecord;
@@ -22,9 +24,11 @@ function ReceiptRow({
   label: string;
   value: string;
 }) {
+  const { copy, isRtl } = useI18n();
+
   return (
     <View style={styles.row}>
-      <Text style={styles.label}>{label}</Text>
+      <Text style={[styles.label, isRtl && styles.rtlText]}>{copy(label)}</Text>
       <Text style={styles.value}>{value}</Text>
     </View>
   );
@@ -35,23 +39,30 @@ export function PaymentReceiptCard({
   propertyName,
   receipt,
 }: PaymentReceiptCardProps) {
-  const grossAmount = payment.grossAmount ?? payment.amount;
-  const agencyFeeAmount = payment.agencyFeeAmount ?? 0;
-  const ownerNetAmount = payment.ownerNetAmount ?? payment.amount;
+  const { copy, isRtl } = useI18n();
+  const rentAmount = payment.rentAmount ?? payment.grossAmount ?? payment.amount;
+  const simulated = receipt ? isReceiptSimulated(receipt) : false;
 
   return (
-    <View accessibilityLabel="Reçu de paiement simulé" style={styles.card}>
+    <View
+      accessibilityLabel={copy(simulated ? 'Reçu de paiement simulé' : 'Reçu de paiement')}
+      style={styles.card}>
       <View style={styles.header}>
-        <Text style={styles.title}>Quittance AtouPay simulée</Text>
-        <Text style={styles.subtitle}>
-          Peut servir de justificatif selon les informations enregistrées dans le système. Aucun débit réel n&apos;est effectué dans cette version.
+        <Text style={[styles.title, isRtl && styles.rtlText]}>
+          {copy(simulated ? 'Quittance AtouPay simulée' : 'Quittance AtouPay')}
+        </Text>
+        <Text style={[styles.subtitle, isRtl && styles.rtlText]}>
+          {copy(
+            simulated
+              ? 'Peut servir de justificatif selon les informations enregistrées dans le système. Aucun débit réel n’est confirmé pour ce paiement simulé.'
+              : 'Peut servir de justificatif selon les informations enregistrées dans le système.',
+          )}
         </Text>
       </View>
 
       <ReceiptRow label="Mois" value={formatMonthLabel(payment.monthKey)} />
-      <ReceiptRow label="Montant brut" value={formatCurrency(grossAmount)} />
-      <ReceiptRow label="Commission agence" value={formatCurrency(agencyFeeAmount)} />
-      <ReceiptRow label="Net propriétaire" value={formatCurrency(ownerNetAmount)} />
+      <ReceiptRow label="Loyer payé" value={formatCurrency(rentAmount)} />
+      <ReceiptRow label="Total payé" value={formatCurrency(rentAmount)} />
       <ReceiptRow label="Bien" value={propertyName} />
       <ReceiptRow label="Opérateur" value={payment.provider ?? 'n/a'} />
       <ReceiptRow label="Référence" value={payment.referenceId} />
@@ -97,5 +108,8 @@ const styles = StyleSheet.create({
     color: colors.text,
     flexShrink: 1,
     ...typography.bodyStrong,
+  },
+  rtlText: {
+    writingDirection: 'rtl',
   },
 });

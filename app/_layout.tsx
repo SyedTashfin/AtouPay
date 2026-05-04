@@ -53,7 +53,8 @@ function RootNavigator() {
     pathname.startsWith('/receipt-verification') ||
     pathname.startsWith('/terms') ||
     pathname.startsWith('/help') ||
-    pathname.startsWith('/support');
+    pathname.startsWith('/support') ||
+    pathname.startsWith('/language');
 
   useEffect(() => {
     if (!isAppHydrated || !isSessionHydrated) {
@@ -171,6 +172,7 @@ function RootNavigator() {
         <Stack.Screen name="terms" />
         <Stack.Screen name="help" />
         <Stack.Screen name="support" />
+        <Stack.Screen name="language" />
         <Stack.Screen name="receipt-verification" />
         <Stack.Screen name="+not-found" />
       </Stack>

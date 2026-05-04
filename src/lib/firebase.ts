@@ -77,6 +77,10 @@ export function getFirebaseUnavailableMessage() {
     return null;
   }
 
+  if (appConfig.appVariant !== 'development') {
+    return 'Connexion momentanément indisponible: cette version de l’application n’est pas correctement configurée. Installez la dernière mise à jour ATouPay ou contactez le support.';
+  }
+
   return `Configuration Firebase incomplète: ajoutez ${missingFirebaseConfigKeys.join(', ')} dans .env.local puis reconstruisez la build native.`;
 }
 

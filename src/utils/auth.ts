@@ -12,6 +12,11 @@ export function getAuthProviderLabel(
   provider?: AuthProvider,
   linkedProviders: AuthProvider[] = [],
 ) {
+  if (provider === 'phone') {
+    return linkedProviders.includes('password') || linkedProviders.includes('google')
+      ? 'Téléphone + compte lié'
+      : 'Téléphone';
+  }
   if (provider === 'password') {
     return linkedProviders.includes('google') ? 'E-mail + Google' : 'E-mail';
   }

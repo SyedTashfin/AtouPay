@@ -13,6 +13,7 @@ import { colors } from '@/src/theme/colors';
 import { radius } from '@/src/theme/radius';
 import { spacing } from '@/src/theme/spacing';
 import { typography } from '@/src/theme/typography';
+import { useI18n } from '@/src/i18n/I18nProvider';
 
 interface AuthFieldProps {
   autoCapitalize?: TextInputProps['autoCapitalize'];
@@ -21,6 +22,7 @@ interface AuthFieldProps {
   helper?: string;
   keyboardType?: KeyboardTypeOptions;
   label: string;
+  maxLength?: TextInputProps['maxLength'];
   multiline?: boolean;
   onChangeText: (value: string) => void;
   onSubmitEditing?: () => void;
@@ -43,6 +45,7 @@ export function AuthField({
   helper,
   keyboardType = 'default',
   label,
+  maxLength,
   multiline = false,
   onChangeText,
   onSubmitEditing,
@@ -53,9 +56,15 @@ export function AuthField({
   textContentType,
   value,
 }: AuthFieldProps) {
+  const { copy, isRtl } = useI18n();
+  const localizedLabel = copy(label);
+  const localizedPlaceholder = placeholder ? copy(placeholder) : undefined;
+  const localizedHelper = helper ? copy(helper) : undefined;
+  const localizedError = error ? copy(error) : undefined;
+
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>{label}</Text>
+      <Text style={[styles.label, isRtl && styles.rtlText]}>{localizedLabel}</Text>
       <View
         style={[
           styles.inputWrap,
@@ -63,26 +72,31 @@ export function AuthField({
           !editable && styles.inputWrapDisabled,
         ]}>
         <TextInput
-          accessibilityLabel={label}
+          accessibilityLabel={localizedLabel}
           autoCapitalize={autoCapitalize}
           autoComplete={autoComplete}
           autoCorrect={autoCorrect}
           editable={editable}
           keyboardType={keyboardType}
+          maxLength={maxLength}
           multiline={multiline}
           onChangeText={onChangeText}
           onSubmitEditing={onSubmitEditing}
-          placeholder={placeholder}
+          placeholder={localizedPlaceholder}
           placeholderTextColor={colors.textMuted}
           returnKeyType={returnKeyType}
           secureTextEntry={secureTextEntry}
-          style={[styles.input, multiline && styles.inputMultiline]}
+          style={[styles.input, multiline && styles.inputMultiline, isRtl && styles.rtlInput]}
           textContentType={textContentType}
           value={value}
         />
         {rightAccessory ? <View style={styles.accessory}>{rightAccessory}</View> : null}
       </View>
-      {error ? <Text style={styles.error}>{error}</Text> : helper ? <Text style={styles.helper}>{helper}</Text> : null}
+      {localizedError ? (
+        <Text style={[styles.error, isRtl && styles.rtlText]}>{localizedError}</Text>
+      ) : localizedHelper ? (
+        <Text style={[styles.helper, isRtl && styles.rtlText]}>{localizedHelper}</Text>
+      ) : null}
     </View>
   );
 }
@@ -100,10 +114,12 @@ export function AuthFieldAccessoryButton({
   children,
   onPress,
 }: AuthFieldAccessoryButtonProps) {
+  const { copy } = useI18n();
+
   return (
     <Pressable
-      accessibilityHint={accessibilityHint}
-      accessibilityLabel={accessibilityLabel}
+      accessibilityHint={accessibilityHint ? copy(accessibilityHint) : undefined}
+      accessibilityLabel={copy(accessibilityLabel)}
       accessibilityRole="button"
       hitSlop={8}
       onPress={onPress}
@@ -155,7 +171,7 @@ const styles = StyleSheet.create({
   },
   accessoryButton: {
     alignItems: 'center',
-    backgroundColor: colors.surfaceMuted,
+    backgroundColor: colors.primarySoft,
     borderRadius: radius.pill,
     justifyContent: 'center',
     minHeight: 36,
@@ -171,5 +187,12 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.75,
+  },
+  rtlInput: {
+    textAlign: 'right',
+    writingDirection: 'rtl',
+  },
+  rtlText: {
+    writingDirection: 'rtl',
   },
 });

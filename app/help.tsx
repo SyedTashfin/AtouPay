@@ -10,6 +10,7 @@ import { ListEmptyState } from '@/src/components/ListEmptyState';
 import { PrimaryButton } from '@/src/components/PrimaryButton';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
 import { useSession } from '@/src/context/SessionProvider';
+import { useI18n } from '@/src/i18n/I18nProvider';
 import { getLegalTermsViaBackend, mapBackendErrorToMessage } from '@/src/services/backendApi';
 import { LegalTermsRecord } from '@/src/types';
 import { colors } from '@/src/theme/colors';
@@ -20,6 +21,7 @@ import { typography } from '@/src/theme/typography';
 
 export default function HelpScreen() {
   const { isAuthenticated } = useSession();
+  const { copy } = useI18n();
   const [terms, setTerms] = useState<LegalTermsRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -106,13 +108,13 @@ export default function HelpScreen() {
             />
 
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>Ce que fait AtouPay</Text>
+              <Text style={styles.cardTitle}>{copy('Ce que fait AtouPay')}</Text>
               <Text style={styles.cardBody}>{terms.summary}</Text>
               <Text style={styles.cardBody}>{terms.responsibilityStatement}</Text>
             </View>
 
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>Réponses pratiques</Text>
+              <Text style={styles.cardTitle}>{copy('Réponses pratiques')}</Text>
               {terms.sections.map((section) => (
                 <View key={section.title} style={styles.sectionBlock}>
                   <Text style={styles.sectionTitle}>{section.title}</Text>
@@ -122,7 +124,7 @@ export default function HelpScreen() {
             </View>
 
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>Accès rapides</Text>
+              <Text style={styles.cardTitle}>{copy('Accès rapides')}</Text>
               <InfoRow
                 label="Conditions d’utilisation"
                 onPress={() => router.push('/terms')}

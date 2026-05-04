@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { useI18n } from '@/src/i18n/I18nProvider';
 import { colors } from '@/src/theme/colors';
 import { radius } from '@/src/theme/radius';
 import { spacing } from '@/src/theme/spacing';
@@ -21,8 +22,10 @@ export function RoleSelector({
   roles = defaultRoles,
   selectedRole,
 }: RoleSelectorProps) {
+  const { copy, isRtl } = useI18n();
+
   return (
-    <View style={styles.row}>
+    <View style={[styles.row, isRtl && styles.rowRtl]}>
       {roles.map((role) => {
         const selected = selectedRole === role;
         const label =
@@ -31,11 +34,12 @@ export function RoleSelector({
             : role === 'owner'
               ? 'Propriétaire'
               : 'Agence';
+        const localizedLabel = copy(label);
 
         return (
           <Pressable
-            accessibilityHint={`Sélectionne le rôle ${label.toLowerCase()} pour cette session`}
-            accessibilityLabel={`Choisir ${label}`}
+            accessibilityHint={`${copy('Sélectionne le rôle')} ${localizedLabel.toLowerCase()} ${copy('pour cette session')}`}
+            accessibilityLabel={`${copy('Choisir')} ${localizedLabel}`}
             accessibilityRole="button"
             accessibilityState={{ disabled, selected }}
             disabled={disabled}
@@ -51,9 +55,9 @@ export function RoleSelector({
               style={[
                 styles.optionText,
                 disabled && styles.optionTextDisabled,
-                selected && styles.optionTextSelected,
+              selected && styles.optionTextSelected,
               ]}>
-              {label}
+              {localizedLabel}
             </Text>
           </Pressable>
         );
@@ -64,24 +68,32 @@ export function RoleSelector({
 
 const styles = StyleSheet.create({
   row: {
+    backgroundColor: colors.surfaceMuted,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
     flexDirection: 'row',
-    gap: spacing.xs,
+    gap: 0,
+    overflow: 'hidden',
+  },
+  rowRtl: {
+    flexDirection: 'row-reverse',
   },
   option: {
     alignItems: 'center',
-    backgroundColor: colors.surfaceGlass,
-    borderColor: colors.border,
-    borderRadius: radius.xl,
-    borderWidth: 1,
+    backgroundColor: colors.surfaceMuted,
+    borderColor: 'transparent',
+    borderRadius: 0,
+    borderWidth: 0,
     flex: 1,
-    minHeight: 64,
+    minHeight: 56,
     justifyContent: 'center',
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.sm,
   },
   optionSelected: {
-    backgroundColor: colors.primarySoft,
-    borderColor: colors.primary,
+    backgroundColor: colors.accentMuted,
+    borderColor: colors.accentMuted,
   },
   optionDisabled: {
     opacity: 0.65,

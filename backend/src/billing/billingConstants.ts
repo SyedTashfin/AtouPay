@@ -1,0 +1,4 @@
+export const OWNER_ACCOUNT_FEE_AMOUNT = 10;
+export const OWNER_ACCOUNT_FEE_CURRENCY = 'EUR' as const;
+export const OWNER_ACCOUNT_FEE_INTERVAL_DAYS = 42;
+export const OWNER_ACCOUNT_GRACE_PERIOD_DAYS = 7;

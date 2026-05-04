@@ -6,6 +6,7 @@ import { radius } from '@/src/theme/radius';
 import { shadows } from '@/src/theme/shadows';
 import { spacing } from '@/src/theme/spacing';
 import { typography } from '@/src/theme/typography';
+import { useI18n } from '@/src/i18n/I18nProvider';
 
 interface InfoRowProps {
   label: string;
@@ -20,11 +21,15 @@ export function InfoRow({
   onPress,
   iconName = 'chevron-right',
 }: InfoRowProps) {
+  const { copy, isRtl } = useI18n();
+  const localizedLabel = copy(label);
+  const localizedValue = copy(value);
+
   const content = (
-    <View style={styles.row}>
+    <View style={[styles.row, isRtl && styles.rowRtl]}>
       <View style={styles.copy}>
-        <Text style={styles.label}>{label}</Text>
-        <Text style={styles.value}>{value}</Text>
+        <Text style={[styles.label, isRtl && styles.rtlText]}>{localizedLabel}</Text>
+        <Text style={[styles.value, isRtl && styles.rtlText]}>{localizedValue}</Text>
       </View>
       <Feather color={colors.textMuted} name={iconName} size={18} />
     </View>
@@ -36,7 +41,7 @@ export function InfoRow({
 
   return (
     <Pressable
-      accessibilityLabel={label}
+      accessibilityLabel={localizedLabel}
       accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}>
@@ -59,6 +64,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
+  rowRtl: {
+    flexDirection: 'row-reverse',
+  },
   copy: {
     flex: 1,
     gap: 4,
@@ -75,5 +83,8 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.85,
+  },
+  rtlText: {
+    writingDirection: 'rtl',
   },
 });

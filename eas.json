@@ -40,6 +40,8 @@
       "env": {
         "APP_VARIANT": "preview",
         "EXPO_PUBLIC_API_BASE_URL": "https://atoupay-backend-ev67wqijcq-ew.a.run.app",
+        "EXPO_PUBLIC_CLIENT_DEMO_MODE": "true",
+        "EXPO_PUBLIC_CLIENT_DEMO_PASSWORD": "AtouPayDemo2026",
         "EXPO_PUBLIC_ENABLE_DEV_TOOLS": "false",
         "EXPO_PUBLIC_USE_BACKEND": "true"
       }

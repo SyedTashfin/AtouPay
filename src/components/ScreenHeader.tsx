@@ -7,6 +7,7 @@ import { radius } from '@/src/theme/radius';
 import { spacing } from '@/src/theme/spacing';
 import { typography } from '@/src/theme/typography';
 import { BuildVariantBadge } from '@/src/components/BuildVariantBadge';
+import { useI18n } from '@/src/i18n/I18nProvider';
 
 interface ScreenHeaderProps {
   title: string;
@@ -23,14 +24,18 @@ export function ScreenHeader({
   onBackPress,
   rightAccessory,
 }: ScreenHeaderProps) {
+  const { copy, isRtl } = useI18n();
+  const localizedTitle = copy(title);
+  const localizedSubtitle = subtitle ? copy(subtitle) : undefined;
+
   return (
     <View style={styles.container}>
-      <View style={styles.row}>
-        <View style={styles.leading}>
+      <View style={[styles.row, isRtl && styles.rowRtl]}>
+        <View style={[styles.leading, isRtl && styles.leadingRtl]}>
           {showBackButton ? (
             <Pressable
-              accessibilityHint="Revient à l'écran précédent"
-              accessibilityLabel="Retour"
+              accessibilityHint={copy("Revient à l'écran précédent")}
+              accessibilityLabel={copy('Retour')}
               accessibilityRole="button"
               hitSlop={8}
               onPress={onBackPress}
@@ -39,8 +44,10 @@ export function ScreenHeader({
             </Pressable>
           ) : null}
           <View style={styles.copy}>
-            <Text style={styles.title}>{title}</Text>
-            {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+            <Text style={[styles.title, isRtl && styles.rtlText]}>{localizedTitle}</Text>
+            {localizedSubtitle ? (
+              <Text style={[styles.subtitle, isRtl && styles.rtlText]}>{localizedSubtitle}</Text>
+            ) : null}
             <BuildVariantBadge />
           </View>
         </View>
@@ -52,7 +59,9 @@ export function ScreenHeader({
 
 const styles = StyleSheet.create({
   container: {
-    paddingBottom: spacing.sm,
+    backgroundColor: colors.primaryDark,
+    borderRadius: radius.lg,
+    padding: spacing.sm,
   },
   row: {
     alignItems: 'center',
@@ -60,15 +69,21 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: spacing.sm,
   },
+  rowRtl: {
+    flexDirection: 'row-reverse',
+  },
   leading: {
     alignItems: 'center',
     flexDirection: 'row',
     flex: 1,
     gap: spacing.sm,
   },
+  leadingRtl: {
+    flexDirection: 'row-reverse',
+  },
   backButton: {
     alignItems: 'center',
-    backgroundColor: colors.surfaceGlass,
+    backgroundColor: colors.surface,
     borderRadius: radius.pill,
     borderWidth: 1,
     borderColor: colors.border,
@@ -82,18 +97,21 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   title: {
-    color: colors.text,
+    color: colors.surface,
     flexShrink: 1,
     ...typography.heading,
   },
   subtitle: {
-    color: colors.textMuted,
+    color: colors.primarySoft,
     flexShrink: 1,
     ...typography.body,
   },
   right: {
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  rtlText: {
+    writingDirection: 'rtl',
   },
   pressed: {
     opacity: 0.85,

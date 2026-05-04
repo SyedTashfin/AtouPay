@@ -20,5 +20,43 @@ allprojects {
   }
 }
 
+gradle.projectsEvaluated {
+  def expoProject = findProject(":expo")
+  if (expoProject != null) {
+    expoProject.tasks.matching { it.name == "generatePackagesList" }.configureEach { task ->
+      task.doLast {
+        def packageListFile = new File(
+          expoProject.buildDir,
+          "generated/expo/src/main/java/expo/modules/ExpoModulesPackageList.java"
+        )
+
+        if (!packageListFile.exists()) {
+          return
+        }
+
+        def seenGeneratedLines = new LinkedHashSet<String>()
+        def lines = packageListFile.readLines("UTF-8")
+        def dedupedLines = lines.findAll { line ->
+          def trimmed = line.trim()
+          // Expo's SDK 54 package scanner can pick up duplicate package source folders.
+          if (!trimmed.startsWith("new expo.modules.") && !trimmed.endsWith(".class,")) {
+            return true
+          }
+          def normalized = trimmed.endsWith(",") ? trimmed.substring(0, trimmed.length() - 1) : trimmed
+          return seenGeneratedLines.add(normalized)
+        }
+
+        if (dedupedLines.size() != lines.size()) {
+          def updatedPackageList = dedupedLines.join(System.lineSeparator())
+          updatedPackageList = updatedPackageList.replaceAll(/,\r?\n(\s*\);)/) { match, closing ->
+            System.lineSeparator() + closing
+          }
+          packageListFile.setText(updatedPackageList + System.lineSeparator(), "UTF-8")
+        }
+      }
+    }
+  }
+}
+
 apply plugin: "expo-root-project"
 apply plugin: "com.facebook.react.rootproject"

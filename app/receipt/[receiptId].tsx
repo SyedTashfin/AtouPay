@@ -12,7 +12,10 @@ import { ListEmptyState } from '@/src/components/ListEmptyState';
 import { PrimaryButton } from '@/src/components/PrimaryButton';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
 import { getReceiptViaBackend, mapBackendErrorToMessage } from '@/src/services/backendApi';
-import { exportReceiptPdf } from '@/src/services/receiptDocument';
+import {
+  exportReceiptPdf,
+  getReceiptPdfFailureMessage,
+} from '@/src/services/receiptDocument';
 import { ReceiptRecord } from '@/src/types';
 import { colors } from '@/src/theme/colors';
 import { radius } from '@/src/theme/radius';
@@ -22,11 +25,14 @@ import { typography } from '@/src/theme/typography';
 import { formatCurrency } from '@/src/utils/currency';
 import { formatDateTimeLabel } from '@/src/utils/dates';
 import { formatPaymentStatusLabel } from '@/src/utils/paymentStatus';
+import { isReceiptSimulated } from '@/src/utils/receipts';
 
 export default function ReceiptDetailScreen() {
   const { receiptId } = useLocalSearchParams<{ receiptId?: string }>();
   const [receipt, setReceipt] = useState<ReceiptRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportFeedback, setExportFeedback] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
@@ -68,15 +74,15 @@ export default function ReceiptDetailScreen() {
     }
 
     setIsExporting(true);
+    setExportError(null);
+    setExportFeedback(null);
 
     try {
       await exportReceiptPdf(receipt);
+      setExportFeedback('Le PDF a été généré. Le partage natif s’ouvre automatiquement si le téléphone le permet.');
     } catch (exportError) {
-      setError(
-        exportError instanceof Error
-          ? exportError.message
-          : 'Le PDF du reçu n’a pas pu être généré.',
-      );
+      console.error('[receipt-pdf] Export failed', exportError);
+      setExportError(getReceiptPdfFailureMessage());
     } finally {
       setIsExporting(false);
     }
@@ -108,6 +114,22 @@ export default function ReceiptDetailScreen() {
           />
         ) : null}
 
+        {exportError ? (
+          <BannerNotice
+            description={exportError}
+            title="PDF indisponible"
+            tone="error"
+          />
+        ) : null}
+
+        {exportFeedback ? (
+          <BannerNotice
+            description={exportFeedback}
+            title="PDF prêt"
+            tone="success"
+          />
+        ) : null}
+
         {!receipt && !error ? (
           <ListEmptyState
             description="Le reçu est en cours de chargement depuis le backend."
@@ -118,8 +140,16 @@ export default function ReceiptDetailScreen() {
         {receipt ? (
           <>
             <BannerNotice
-              description="Cette quittance peut servir de justificatif selon les informations enregistrées dans le système. Comme le paiement est simulé, aucun débit bancaire réel ni aucune répartition financière réelle n’ont été exécutés."
-              title="Quittance AtouPay • paiement simulé"
+              description={
+                isReceiptSimulated(receipt)
+                  ? 'Cette quittance peut servir de justificatif selon les informations enregistrées dans le système. Le paiement est simulé: aucun débit bancaire réel ni aucune répartition financière réelle n’ont été exécutés.'
+                  : 'Cette quittance peut servir de justificatif selon les informations enregistrées dans le système.'
+              }
+              title={
+                isReceiptSimulated(receipt)
+                  ? 'Quittance AtouPay • paiement simulé'
+                  : 'Quittance AtouPay'
+              }
               tone="info"
             />
 
@@ -127,7 +157,7 @@ export default function ReceiptDetailScreen() {
               description="Les actions importantes sont regroupées pour éviter une page de reçu uniquement composée de lignes techniques."
               steps={[
                 {
-                  description: 'Consultez le montant brut, la commission et le net propriétaire.',
+                  description: 'Consultez le montant du loyer payé et les informations de vérification.',
                   iconName: 'file-text',
                   title: 'Lire le reçu',
                 },
@@ -175,7 +205,11 @@ export default function ReceiptDetailScreen() {
               <InfoRow iconName="hash" label="Quittance" value={receipt.receiptNumber} />
               <InfoRow iconName="calendar" label="Date de paiement" value={formatDateTimeLabel(receipt.paidAt ?? receipt.issuedAt)} />
               <InfoRow iconName="clock" label="Date d’émission" value={formatDateTimeLabel(receipt.issuedAt)} />
-              <InfoRow iconName="credit-card" label="Mode de paiement" value={receipt.paymentMethod ?? 'Simulation'} />
+              <InfoRow
+                iconName="credit-card"
+                label="Mode de paiement"
+                value={receipt.paymentMethod ?? (isReceiptSimulated(receipt) ? 'Simulation' : 'Non renseigné')}
+              />
               <InfoRow
                 iconName="check-circle"
                 label="Statut"
@@ -184,9 +218,7 @@ export default function ReceiptDetailScreen() {
               <InfoRow iconName="users" label="Locataire" value={receipt.tenantDisplayName ?? receipt.tenantEmail ?? receipt.tenantId} />
               <InfoRow iconName="briefcase" label="Propriétaire" value={receipt.ownerDisplayName ?? receipt.ownerEmail ?? receipt.ownerId} />
               <InfoRow iconName="shield" label="Agence" value={receipt.agencyDisplayName ?? 'Agence non renseignée'} />
-              <InfoRow iconName="dollar-sign" label="Montant brut" value={formatCurrency(receipt.grossAmount)} />
-              <InfoRow iconName="percent" label="Commission agence" value={formatCurrency(receipt.agencyFeeAmount)} />
-              <InfoRow iconName="dollar-sign" label="Net propriétaire" value={formatCurrency(receipt.ownerNetAmount)} />
+              <InfoRow iconName="dollar-sign" label="Loyer payé" value={formatCurrency(receipt.grossAmount)} />
               <InfoRow
                 iconName="link"
                 label="Jeton de vérification"
@@ -197,7 +229,7 @@ export default function ReceiptDetailScreen() {
             <View style={styles.actions}>
               <PrimaryButton
                 accessibilityHint="Génère un PDF du reçu et ouvre le partage natif si disponible"
-                label="Exporter la quittance en PDF"
+                label="Télécharger / partager le PDF"
                 loading={isExporting}
                 onPress={() => {
                   void handleExportPdf();

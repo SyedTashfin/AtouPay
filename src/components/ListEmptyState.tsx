@@ -6,6 +6,7 @@ import { radius } from '@/src/theme/radius';
 import { shadows } from '@/src/theme/shadows';
 import { spacing } from '@/src/theme/spacing';
 import { typography } from '@/src/theme/typography';
+import { useI18n } from '@/src/i18n/I18nProvider';
 
 interface ListEmptyStateProps {
   title: string;
@@ -13,14 +14,16 @@ interface ListEmptyStateProps {
 }
 
 export function ListEmptyState({ title, description }: ListEmptyStateProps) {
+  const { copy, isRtl } = useI18n();
+
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, isRtl && styles.cardRtl]}>
       <View style={styles.iconWrap}>
         <Feather color={colors.primaryDark} name="inbox" size={18} />
       </View>
       <View style={styles.copy}>
-        <Text style={styles.title}>{title}</Text>
-        <Text style={styles.description}>{description}</Text>
+        <Text style={[styles.title, isRtl && styles.rtlText]}>{copy(title)}</Text>
+        <Text style={[styles.description, isRtl && styles.rtlText]}>{copy(description)}</Text>
       </View>
     </View>
   );
@@ -36,6 +39,9 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     padding: spacing.md,
     ...shadows.soft,
+  },
+  cardRtl: {
+    alignItems: 'flex-end',
   },
   iconWrap: {
     alignItems: 'center',
@@ -55,5 +61,8 @@ const styles = StyleSheet.create({
   description: {
     color: colors.textMuted,
     ...typography.body,
+  },
+  rtlText: {
+    writingDirection: 'rtl',
   },
 });

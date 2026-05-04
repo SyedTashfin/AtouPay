@@ -1,6 +1,6 @@
 import * as Crypto from 'expo-crypto';
 
-const inviteScheme = 'atoupay://auth/login';
+const inviteScheme = 'atoupay://auth/invitation';
 
 export function normalizeInviteCode(value: string) {
   return value

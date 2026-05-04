@@ -40,10 +40,22 @@ import {
   normalizeInviteCode,
 } from '../lib/invite.js';
 import type { DataRepository, TransactionContext } from '../repositories/types.js';
+import {
+  OWNER_ACCOUNT_FEE_AMOUNT,
+  OWNER_ACCOUNT_FEE_CURRENCY,
+  OWNER_ACCOUNT_FEE_INTERVAL_DAYS,
+} from '../billing/billingConstants.js';
+import {
+  OwnerBillingService,
+  type AgencyOwnerBillingSummary,
+  type OwnerBillingSummary,
+} from '../billing/ownerBillingService.js';
+import { noopInviteEmailService, type InviteEmailService } from './email-service.js';
 import { finalizeSimulatedPaymentProvider } from './payment-provider.js';
 
 interface BackendServiceOptions {
   config: AppConfig;
+  emailService?: InviteEmailService;
   now?: () => Date;
   repository: DataRepository;
 }
@@ -79,9 +91,20 @@ export interface CreatePropertyOutput {
   ownerId: string;
 }
 
+export interface UpdatePropertyInput {
+  address: string;
+  label: string;
+}
+
+export interface UpdatePropertyOutput {
+  id: string;
+  ownerId: string;
+}
+
 export interface CreateUnitInput {
   currency: string;
   label: string;
+  notes?: string | null;
   propertyId: string;
   rentAmount: number;
 }
@@ -90,6 +113,22 @@ export interface CreateUnitOutput {
   id: string;
   ownerId: string;
   propertyId: string;
+}
+
+export interface UpdateUnitInput {
+  label: string;
+  notes?: string | null;
+  rentAmount: number;
+}
+
+export interface UpdateUnitOutput {
+  id: string;
+  ownerId: string;
+  propertyId: string;
+}
+
+export interface DeleteInventoryOutput {
+  id: string;
 }
 
 export interface CreateInviteInput {
@@ -183,9 +222,12 @@ export interface SupportStatusBreakdown {
 }
 
 export interface MoneySummary {
+  ownerReceivableAmount: number;
   agencyFeeAmount: number;
   grossAmount: number;
   ownerNetAmount: number;
+  platformRentFeeAmount: number;
+  tenantFeeAmount: number;
 }
 
 export interface AgencyDashboardOutput {
@@ -255,16 +297,34 @@ export type DashboardPeriod = 'all' | 'last_month' | 'this_month';
 
 export interface AgencySettingsOutput {
   agencyId: string;
+  ownerAccountFeeAmount: number;
+  ownerAccountFeeCurrency: 'EUR';
+  ownerAccountFeeIntervalDays: number;
+  legacyCommissionRate: number;
   commissionRate: number;
   commissionType: 'percentage';
   displayName: string;
 }
 
 export interface UpdateAgencySettingsInput {
-  commissionRate: number;
+  displayName?: string;
+}
+
+export interface AgencyManualOwnerBillingPaymentInput {
+  note: string;
+  provider?: 'manual' | 'simulated';
+  providerReference?: string;
+}
+
+export interface AgencySuspendOwnerBillingInput {
+  reason: string;
 }
 
 export interface RevokeOwnerAccessInviteInput {
+  inviteId: string;
+}
+
+export interface DeleteOwnerAccessInviteInput {
   inviteId: string;
 }
 
@@ -403,8 +463,33 @@ function normalizePhoneNumber(value: string | null | undefined) {
     return null;
   }
 
-  const normalized = value.replace(/\s+/g, ' ').trim();
+  const normalized = value.trim().replace(/[\s().-]/g, '');
+
   return normalized.length > 0 ? normalized : null;
+}
+
+function resolvePhoneVerificationStatus(input: {
+  identityPhoneNumber?: string | null;
+  nextPhoneNumber: string | null;
+  previousStatus?: 'unverified' | 'verified' | null;
+  previousPhoneNumber?: string | null;
+}) {
+  if (!input.nextPhoneNumber) {
+    return null;
+  }
+
+  if (input.identityPhoneNumber && input.identityPhoneNumber === input.nextPhoneNumber) {
+    return 'verified' as const;
+  }
+
+  if (
+    input.previousStatus === 'verified' &&
+    input.previousPhoneNumber === input.nextPhoneNumber
+  ) {
+    return 'verified' as const;
+  }
+
+  return 'unverified' as const;
 }
 
 function normalizeRecoveryContactPreference(
@@ -604,6 +689,12 @@ function buildUserDoc(input: {
     ownerId: resolvedOwnerId,
     phoneNumber:
       phoneNumber !== undefined ? phoneNumber : existing?.phoneNumber ?? null,
+    phoneVerificationStatus: resolvePhoneVerificationStatus({
+      identityPhoneNumber: identity.phoneNumber,
+      nextPhoneNumber: phoneNumber !== undefined ? phoneNumber : existing?.phoneNumber ?? null,
+      previousPhoneNumber: existing?.phoneNumber ?? null,
+      previousStatus: existing?.phoneVerificationStatus ?? null,
+    }),
     photoURL: identity.photoUrl ?? existing?.photoURL ?? null,
     recoveryContactPreference:
       recoveryContactPreference !== undefined
@@ -621,23 +712,16 @@ function buildUserDoc(input: {
   };
 }
 
-function clampRate(value: number) {
-  if (!Number.isFinite(value)) {
-    return 0;
-  }
-
-  return Math.max(0, Math.min(value, 1));
-}
-
-function calculateCommissionLedger(grossAmount: number, commissionRate: number) {
-  const normalizedRate = clampRate(commissionRate);
-  const agencyFeeAmount = Math.round(grossAmount * normalizedRate);
-  const ownerNetAmount = Math.max(0, grossAmount - agencyFeeAmount);
-
+function calculateRentLedger(rentAmount: number) {
   return {
-    agencyFeeAmount,
-    commissionRate: normalizedRate,
-    ownerNetAmount,
+    agencyFeeAmount: 0,
+    commissionRate: 0,
+    grossAmount: rentAmount,
+    ownerNetAmount: rentAmount,
+    ownerReceivableAmount: rentAmount,
+    platformRentFeeAmount: 0,
+    rentAmount,
+    tenantFeeAmount: 0,
   };
 }
 
@@ -694,7 +778,10 @@ function summarizePayments(
   const money: MoneySummary = {
     agencyFeeAmount: 0,
     grossAmount: 0,
+    ownerReceivableAmount: 0,
     ownerNetAmount: 0,
+    platformRentFeeAmount: 0,
+    tenantFeeAmount: 0,
   };
 
   for (const payment of payments) {
@@ -705,9 +792,12 @@ function summarizePayments(
     byStatus[payment.paymentStatus] += 1;
 
     if (payment.paymentStatus === 'paid') {
-      money.agencyFeeAmount += payment.agencyFeeAmount;
+      money.agencyFeeAmount += payment.agencyFeeAmount ?? 0;
       money.grossAmount += payment.grossAmount;
+      money.ownerReceivableAmount += payment.ownerReceivableAmount ?? payment.ownerNetAmount;
       money.ownerNetAmount += payment.ownerNetAmount;
+      money.platformRentFeeAmount += payment.platformRentFeeAmount ?? 0;
+      money.tenantFeeAmount += payment.tenantFeeAmount ?? 0;
     }
   }
 
@@ -861,17 +951,31 @@ function isSupportRequestAccessibleToUser(user: UserDoc, request: SupportRequest
   return request.userId === user.uid;
 }
 
+function isSimulatedOwnerBillingPaymentAllowed(config: AppConfig) {
+  return config.appVariant === 'development' ||
+    config.appVariant === 'preview';
+}
+
 export class BackendService {
+  private readonly billingService: OwnerBillingService;
+
   private readonly config: AppConfig;
 
   private readonly now: () => Date;
 
   private readonly repository: DataRepository;
 
+  private readonly emailService: InviteEmailService;
+
   constructor(options: BackendServiceOptions) {
     this.config = options.config;
+    this.emailService = options.emailService ?? noopInviteEmailService;
     this.now = options.now ?? (() => new Date());
     this.repository = options.repository;
+    this.billingService = new OwnerBillingService({
+      now: this.now,
+      repository: this.repository,
+    });
   }
 
   private buildOwnerAccessLink(inviteCode: string) {
@@ -882,6 +986,14 @@ export class BackendService {
     const scheme = this.config.inviteBaseUrl.split('://')[0] ?? 'atoupay';
 
     return `${scheme}://receipt-verification?token=${encodeURIComponent(token)}`;
+  }
+
+  private async sendInviteEmailSafely(operation: () => Promise<void>) {
+    try {
+      await operation();
+    } catch {
+      // Invite writes are the source of truth; outbound email must not roll them back.
+    }
   }
 
   private recordAudit(
@@ -1011,23 +1123,6 @@ export class BackendService {
     return agency?.displayName ?? 'Agence ATouPay';
   }
 
-  private async resolveCommissionRate(
-    transaction: TransactionContext,
-    agencyId: string | null,
-  ) {
-    if (!agencyId) {
-      return 0;
-    }
-
-    const agency = await transaction.getAgency(agencyId);
-
-    if (!agency || agency.commissionType !== 'percentage') {
-      return 0;
-    }
-
-    return clampRate(agency.commissionRate);
-  }
-
   private async resolveAgencyAdminBootstrap(
     transaction: TransactionContext,
     identity: AuthContext,
@@ -1057,14 +1152,6 @@ export class BackendService {
           ? await transaction.getOwner(identity.uid)
           : null;
 
-      if (existingUser && existingUser.role !== input.role) {
-        throw new AppError(
-          409,
-          'role_locked',
-          'Ce compte ATouPay a déjà un rôle applicatif différent.',
-        );
-      }
-
       if (existingUser?.status === 'suspended') {
         throw new AppError(
           403,
@@ -1073,12 +1160,20 @@ export class BackendService {
         );
       }
 
-      if (input.role === 'agency_admin') {
-        const { bootstrap, bootstrapId } = await this.resolveAgencyAdminBootstrap(
-          transaction,
-          identity,
-          existingUser,
-        );
+      const agencyAdminBootstrap = await this.resolveAgencyAdminBootstrap(
+        transaction,
+        identity,
+        existingUser,
+      );
+
+      // The public UI only exposes tenant/owner paths. Agency admins are resolved
+      // from server-side authorization so credentials work from either login form.
+      if (
+        input.role === 'agency_admin' ||
+        existingUser?.role === 'agency_admin' ||
+        agencyAdminBootstrap.bootstrap
+      ) {
+        const { bootstrap, bootstrapId } = agencyAdminBootstrap;
 
         if (!bootstrap && !existingUser?.agencyId) {
           throw new AppError(
@@ -1148,6 +1243,15 @@ export class BackendService {
           role: 'agency_admin',
           tenantId: null,
           uid: nextUser.uid,
+        };
+      }
+
+      if (existingUser && existingUser.role !== input.role) {
+        return {
+          ownerId: existingUser.ownerId,
+          role: existingUser.role,
+          tenantId: existingUser.tenantId,
+          uid: existingUser.uid,
         };
       }
 
@@ -1270,7 +1374,7 @@ export class BackendService {
 
     return {
       phoneNumber: user.phoneNumber ?? null,
-      phoneVerificationStatus: user.phoneNumber ? 'unverified' : null,
+      phoneVerificationStatus: user.phoneVerificationStatus ?? null,
       recoveryContactPreference: user.recoveryContactPreference ?? null,
       supportRecoveryStatus: user.supportRecoveryStatus ?? null,
     };
@@ -1299,6 +1403,12 @@ export class BackendService {
         input.recoveryContactPreference === undefined
           ? user.recoveryContactPreference ?? null
           : normalizeRecoveryContactPreference(input.recoveryContactPreference);
+      const nextPhoneVerificationStatus = resolvePhoneVerificationStatus({
+        identityPhoneNumber: identity.phoneNumber,
+        nextPhoneNumber,
+        previousPhoneNumber: user.phoneNumber ?? null,
+        previousStatus: user.phoneVerificationStatus ?? null,
+      });
 
       if (nextPreference === 'phone' && !nextPhoneNumber) {
         throw new AppError(
@@ -1310,13 +1420,14 @@ export class BackendService {
 
       transaction.updateUser(identity.uid, {
         phoneNumber: nextPhoneNumber,
+        phoneVerificationStatus: nextPhoneVerificationStatus,
         recoveryContactPreference: nextPreference,
         updatedAt: timestamp,
       });
 
       return {
         phoneNumber: nextPhoneNumber,
-        phoneVerificationStatus: nextPhoneNumber ? 'unverified' : null,
+        phoneVerificationStatus: nextPhoneVerificationStatus,
         recoveryContactPreference: nextPreference,
         supportRecoveryStatus: user.supportRecoveryStatus ?? null,
       };
@@ -1648,6 +1759,11 @@ export class BackendService {
     const propertyId = randomUUID();
     const timestamp = this.now().toISOString();
     const currentTerms = await this.getOrCreateLegalTerms();
+    const ownerAccessUser = assertActiveOwner(await this.repository.getUser(identity.uid));
+    await this.billingService.assertOwnerCanPerformWriteOperation(
+      ownerAccessUser.ownerId ?? identity.uid,
+      'create_property',
+    );
 
     return this.repository.runTransaction(async (transaction) => {
       const user = assertActiveOwner(await transaction.getUser(identity.uid));
@@ -1680,9 +1796,107 @@ export class BackendService {
     });
   }
 
+  async updateOwnerProperty(
+    identity: AuthContext,
+    propertyId: string,
+    input: UpdatePropertyInput,
+  ): Promise<UpdatePropertyOutput> {
+    const label = input.label.trim();
+    const address = input.address.trim();
+
+    if (label.length === 0 || address.length === 0) {
+      throw new AppError(400, 'invalid_request', 'Le nom et l’adresse du bien sont requis.');
+    }
+
+    const timestamp = this.now().toISOString();
+    const currentTerms = await this.getOrCreateLegalTerms();
+    const ownerAccessUser = assertActiveOwner(await this.repository.getUser(identity.uid));
+    await this.billingService.assertOwnerCanPerformWriteOperation(
+      ownerAccessUser.ownerId ?? identity.uid,
+      'update_property',
+    );
+
+    return this.repository.runTransaction(async (transaction) => {
+      const user = assertActiveOwner(await transaction.getUser(identity.uid));
+      await this.ensureAcceptedTerms(transaction, user, currentTerms);
+      const ownerId = user.ownerId ?? identity.uid;
+      const property = await transaction.getProperty(propertyId);
+
+      if (!property) {
+        throw new AppError(404, 'property_not_found', 'Le bien est introuvable.');
+      }
+
+      if (property.ownerId !== ownerId) {
+        throw new AppError(
+          403,
+          'forbidden_owner_scope',
+          'Vous ne pouvez modifier que vos propres biens.',
+        );
+      }
+
+      transaction.updateProperty(propertyId, {
+        address,
+        label,
+        updatedAt: timestamp,
+      });
+
+      return {
+        id: propertyId,
+        ownerId,
+      };
+    });
+  }
+
+  async deleteOwnerProperty(
+    identity: AuthContext,
+    propertyId: string,
+  ): Promise<DeleteInventoryOutput> {
+    const currentTerms = await this.getOrCreateLegalTerms();
+    const ownerAccessUser = assertActiveOwner(await this.repository.getUser(identity.uid));
+    await this.billingService.assertOwnerCanPerformWriteOperation(
+      ownerAccessUser.ownerId ?? identity.uid,
+      'delete_property',
+    );
+
+    return this.repository.runTransaction(async (transaction) => {
+      const user = assertActiveOwner(await transaction.getUser(identity.uid));
+      await this.ensureAcceptedTerms(transaction, user, currentTerms);
+      const ownerId = user.ownerId ?? identity.uid;
+      const property = await transaction.getProperty(propertyId);
+      const units = await transaction.listUnitsByProperty(propertyId);
+
+      if (!property) {
+        throw new AppError(404, 'property_not_found', 'Le bien est introuvable.');
+      }
+
+      if (property.ownerId !== ownerId) {
+        throw new AppError(
+          403,
+          'forbidden_owner_scope',
+          'Vous ne pouvez supprimer que vos propres biens.',
+        );
+      }
+
+      if (units.length > 0) {
+        throw new AppError(
+          409,
+          'property_has_units',
+          'Supprimez d’abord les unités de ce bien avant de supprimer le bien.',
+        );
+      }
+
+      transaction.deleteProperty(propertyId);
+
+      return {
+        id: propertyId,
+      };
+    });
+  }
+
   async createOwnerUnit(identity: AuthContext, input: CreateUnitInput): Promise<CreateUnitOutput> {
     const label = input.label.trim();
     const currency = input.currency.trim().toUpperCase();
+    const notes = input.notes?.trim() ? input.notes.trim() : null;
     const rentAmount = Number(input.rentAmount);
 
     if (label.length === 0) {
@@ -1700,6 +1914,11 @@ export class BackendService {
     const unitId = randomUUID();
     const timestamp = this.now().toISOString();
     const currentTerms = await this.getOrCreateLegalTerms();
+    const ownerAccessUser = assertActiveOwner(await this.repository.getUser(identity.uid));
+    await this.billingService.assertOwnerCanPerformWriteOperation(
+      ownerAccessUser.ownerId ?? identity.uid,
+      'create_unit',
+    );
 
     return this.repository.runTransaction(async (transaction) => {
       const user = assertActiveOwner(await transaction.getUser(identity.uid));
@@ -1724,6 +1943,7 @@ export class BackendService {
         createdAt: timestamp,
         currency,
         label,
+        notes,
         ownerId,
         propertyId: input.propertyId,
         rentAmount,
@@ -1742,6 +1962,123 @@ export class BackendService {
     });
   }
 
+  async updateOwnerUnit(
+    identity: AuthContext,
+    unitId: string,
+    input: UpdateUnitInput,
+  ): Promise<UpdateUnitOutput> {
+    const label = input.label.trim();
+    const notes = input.notes?.trim() ? input.notes.trim() : null;
+    const rentAmount = Number(input.rentAmount);
+
+    if (label.length === 0) {
+      throw new AppError(400, 'invalid_request', 'Le libellé de l’unité est requis.');
+    }
+
+    if (!Number.isFinite(rentAmount) || rentAmount <= 0) {
+      throw new AppError(400, 'invalid_request', 'Le loyer mensuel doit être strictement positif.');
+    }
+
+    const timestamp = this.now().toISOString();
+    const currentTerms = await this.getOrCreateLegalTerms();
+    const ownerAccessUser = assertActiveOwner(await this.repository.getUser(identity.uid));
+    await this.billingService.assertOwnerCanPerformWriteOperation(
+      ownerAccessUser.ownerId ?? identity.uid,
+      'update_unit',
+    );
+
+    return this.repository.runTransaction(async (transaction) => {
+      const user = assertActiveOwner(await transaction.getUser(identity.uid));
+      await this.ensureAcceptedTerms(transaction, user, currentTerms);
+      const ownerId = user.ownerId ?? identity.uid;
+      const unit = await transaction.getUnit(unitId);
+
+      if (!unit) {
+        throw new AppError(404, 'unit_not_found', 'L’unité est introuvable.');
+      }
+
+      if (unit.ownerId !== ownerId) {
+        throw new AppError(
+          403,
+          'forbidden_owner_scope',
+          'Vous ne pouvez modifier que vos propres unités.',
+        );
+      }
+
+      if (unit.status === 'occupied' && unit.rentAmount !== rentAmount) {
+        throw new AppError(
+          409,
+          'occupied_unit_rent_locked',
+          'Le loyer d’une unité occupée ne peut pas être modifié depuis cette version. Les libellés et notes restent modifiables.',
+        );
+      }
+
+      transaction.updateUnit(unitId, {
+        label,
+        notes,
+        rentAmount,
+        updatedAt: timestamp,
+      });
+
+      return {
+        id: unitId,
+        ownerId,
+        propertyId: unit.propertyId,
+      };
+    });
+  }
+
+  async deleteOwnerUnit(identity: AuthContext, unitId: string): Promise<DeleteInventoryOutput> {
+    const currentTerms = await this.getOrCreateLegalTerms();
+    const ownerAccessUser = assertActiveOwner(await this.repository.getUser(identity.uid));
+    await this.billingService.assertOwnerCanPerformWriteOperation(
+      ownerAccessUser.ownerId ?? identity.uid,
+      'delete_unit',
+    );
+
+    return this.repository.runTransaction(async (transaction) => {
+      const user = assertActiveOwner(await transaction.getUser(identity.uid));
+      await this.ensureAcceptedTerms(transaction, user, currentTerms);
+      const ownerId = user.ownerId ?? identity.uid;
+      const unit = await transaction.getUnit(unitId);
+      const payments = await transaction.listPaymentsByUnit(unitId);
+
+      if (!unit) {
+        throw new AppError(404, 'unit_not_found', 'L’unité est introuvable.');
+      }
+
+      if (unit.ownerId !== ownerId) {
+        throw new AppError(
+          403,
+          'forbidden_owner_scope',
+          'Vous ne pouvez supprimer que vos propres unités.',
+        );
+      }
+
+      if (unit.status !== 'vacant' || unit.tenantId || unit.activeInviteId) {
+        throw new AppError(
+          409,
+          'unit_not_deletable',
+          'Seule une unité vacante, sans invitation active ni locataire, peut être supprimée.',
+        );
+      }
+
+      if (payments.length > 0) {
+        throw new AppError(
+          409,
+          'unit_has_payments',
+          'Cette unité possède déjà un historique de paiement et ne peut pas être supprimée.',
+        );
+      }
+
+      transaction.deleteUnit(unitId);
+
+      return {
+        id: unitId,
+      };
+    });
+  }
+
   async createInvite(identity: AuthContext, input: CreateInviteInput): Promise<CreateInviteOutput> {
     const timestamp = this.now();
     const nowIso = timestamp.toISOString();
@@ -1751,8 +2088,16 @@ export class BackendService {
     const inviteType = input.inviteType;
     const normalizedEmail = input.email?.trim() ? normalizeEmail(input.email) : null;
     const currentTerms = await this.getOrCreateLegalTerms();
+    let ownerName = 'Propriétaire ATouPay';
+    let propertyLabel = 'Logement ATouPay';
+    let unitLabel = 'Unité';
+    const ownerAccessUser = assertActiveOwner(await this.repository.getUser(identity.uid));
+    await this.billingService.assertOwnerCanPerformWriteOperation(
+      ownerAccessUser.ownerId ?? identity.uid,
+      'create_tenant_invite',
+    );
 
-    return this.repository.runTransaction(async (transaction) => {
+    const result: CreateInviteOutput = await this.repository.runTransaction(async (transaction) => {
       const user = assertActiveOwner(await transaction.getUser(identity.uid));
       await this.ensureAcceptedTerms(transaction, user, currentTerms);
       const ownerId = user.ownerId ?? identity.uid;
@@ -1779,6 +2124,10 @@ export class BackendService {
           'Le bien parent de cette unité est indisponible.',
         );
       }
+
+      ownerName = user.displayName;
+      propertyLabel = property.label;
+      unitLabel = unit.label;
 
       if (unit.tenantId || unit.status === 'occupied') {
         throw new AppError(409, 'unit_already_occupied', 'Cette unité est déjà occupée.');
@@ -1854,6 +2203,20 @@ export class BackendService {
         unitId: input.unitId,
       };
     });
+
+    await this.sendInviteEmailSafely(() =>
+      this.emailService.sendTenantInvite({
+        email: normalizedEmail,
+        expiresAt: result.expiresAt,
+        inviteCode: result.inviteCode,
+        inviteLink: result.inviteLink,
+        ownerName,
+        propertyLabel,
+        unitLabel,
+      }),
+    );
+
+    return result;
   }
 
   async listOwnerAccessInvites(identity: AuthContext): Promise<OwnerAccessInviteOutput[]> {
@@ -1893,12 +2256,14 @@ export class BackendService {
     const normalizedEmail = input.email?.trim() ? normalizeEmail(input.email) : null;
     const expiresAt = new Date(timestamp.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
     const currentTerms = await this.getOrCreateLegalTerms();
+    let agencyName = 'Agence ATouPay';
 
-    return this.repository.runTransaction(async (transaction) => {
+    const result: OwnerAccessInviteOutput = await this.repository.runTransaction(async (transaction) => {
       const admin = assertAgencyAdmin(await transaction.getUser(identity.uid));
       await this.ensureAcceptedTerms(transaction, admin, currentTerms);
       const agencyId = admin.agencyId!;
       const agency = await transaction.getAgency(agencyId);
+      agencyName = agency?.displayName ?? agencyName;
 
       if (!agency) {
         transaction.setAgency(agencyId, {
@@ -1906,6 +2271,9 @@ export class BackendService {
           commissionType: 'percentage',
           createdAt: nowIso,
           displayName: 'Agence ATouPay',
+          ownerAccountFeeAmount: OWNER_ACCOUNT_FEE_AMOUNT,
+          ownerAccountFeeCurrency: OWNER_ACCOUNT_FEE_CURRENCY,
+          ownerAccountFeeIntervalDays: OWNER_ACCOUNT_FEE_INTERVAL_DAYS,
           updatedAt: nowIso,
         });
       }
@@ -1971,6 +2339,18 @@ export class BackendService {
         status: 'pending',
       };
     });
+
+    await this.sendInviteEmailSafely(() =>
+      this.emailService.sendOwnerAccessInvite({
+        agencyName,
+        email: normalizedEmail,
+        expiresAt: result.expiresAt,
+        inviteCode: result.ownerInviteCode!,
+        inviteLink: result.inviteLink!,
+      }),
+    );
+
+    return result;
   }
 
   async revokeOwnerAccessInvite(
@@ -2050,6 +2430,72 @@ export class BackendService {
         id: input.inviteId,
         inviteType: invite.inviteType,
         status: 'revoked',
+      };
+    });
+  }
+
+  async deleteOwnerAccessInvite(
+    identity: AuthContext,
+    input: DeleteOwnerAccessInviteInput,
+  ): Promise<DeleteInventoryOutput> {
+    const timestamp = this.now().toISOString();
+    const currentTerms = await this.getOrCreateLegalTerms();
+
+    return this.repository.runTransaction(async (transaction) => {
+      const admin = assertAgencyAdmin(await transaction.getUser(identity.uid));
+      await this.ensureAcceptedTerms(transaction, admin, currentTerms);
+      const invite = await transaction.getOwnerAccessInvite(input.inviteId);
+
+      if (!invite) {
+        throw new AppError(
+          404,
+          'owner_access_not_found',
+          'Cette invitation propriétaire est introuvable.',
+        );
+      }
+
+      if (invite.agencyId !== admin.agencyId) {
+        throw new AppError(
+          403,
+          'forbidden_agency_scope',
+          'Cette invitation n’appartient pas à votre agence.',
+        );
+      }
+
+      const normalizedStatus = normalizeInviteStatus(invite, this.now());
+
+      if (normalizedStatus === 'claimed') {
+        throw new AppError(
+          409,
+          'owner_access_already_claimed',
+          'Une invitation déjà utilisée doit rester conservée pour l’historique.',
+        );
+      }
+
+      if (normalizedStatus === 'pending') {
+        throw new AppError(
+          409,
+          'owner_access_revoke_required',
+          'Révoquez cette invitation avant de la retirer de la liste.',
+        );
+      }
+
+      transaction.deleteOwnerAccessInvite(input.inviteId);
+      this.recordAudit(transaction, {
+        actor: admin,
+        agencyId: admin.agencyId,
+        entityId: input.inviteId,
+        entityType: 'ownerAccessInvite',
+        eventType: 'owner_invite_deleted',
+        metadata: {
+          email: invite.email,
+          previousStatus: normalizedStatus,
+        },
+        timestamp,
+      });
+
+      return {
+        id: input.inviteId,
       };
     });
   }
@@ -2257,11 +2703,14 @@ export class BackendService {
       activeOwnersCount: users.filter((user) => user.role === 'owner' && user.status === 'active').length,
       activeTenantsCount: users.filter((user) => user.role === 'tenant' && user.status === 'active').length,
       agencyId,
-      commissionRate: agency?.commissionRate ?? 0,
+      commissionRate: 0,
       commissionSummary: {
         agencyFeeAmount: paymentSummary.money.agencyFeeAmount,
         grossAmount: paymentSummary.money.grossAmount,
+        ownerReceivableAmount: paymentSummary.money.ownerReceivableAmount,
         ownerNetAmount: paymentSummary.money.ownerNetAmount,
+        platformRentFeeAmount: paymentSummary.money.platformRentFeeAmount,
+        tenantFeeAmount: paymentSummary.money.tenantFeeAmount,
       },
       displayName: agency?.displayName ?? 'Agence ATouPay',
       occupiedUnitsCount: units.filter((unit) => unit.status === 'occupied').length,
@@ -2422,9 +2871,13 @@ export class BackendService {
 
     return {
       agencyId,
-      commissionRate: agency?.commissionRate ?? 0,
+      commissionRate: 0,
       commissionType: 'percentage',
       displayName: agency?.displayName ?? 'Agence ATouPay',
+      legacyCommissionRate: agency?.commissionRate ?? 0,
+      ownerAccountFeeAmount: agency?.ownerAccountFeeAmount ?? OWNER_ACCOUNT_FEE_AMOUNT,
+      ownerAccountFeeCurrency: agency?.ownerAccountFeeCurrency ?? OWNER_ACCOUNT_FEE_CURRENCY,
+      ownerAccountFeeIntervalDays: agency?.ownerAccountFeeIntervalDays ?? OWNER_ACCOUNT_FEE_INTERVAL_DAYS,
     };
   }
 
@@ -2432,37 +2885,62 @@ export class BackendService {
     identity: AuthContext,
     input: UpdateAgencySettingsInput,
   ): Promise<AgencySettingsOutput> {
-    const commissionRate = clampRate(input.commissionRate);
+    const displayName = input.displayName?.trim();
     const timestamp = this.now().toISOString();
     const currentTerms = await this.getOrCreateLegalTerms();
+
+    if (input.displayName !== undefined && !displayName) {
+      throw new AppError(
+        400,
+        'invalid_agency_name',
+        'Le nom de l’agence doit contenir au moins un caractère.',
+      );
+    }
 
     return this.repository.runTransaction(async (transaction) => {
       const admin = assertAgencyAdmin(await transaction.getUser(identity.uid));
       await this.ensureAcceptedTerms(transaction, admin, currentTerms);
       const agencyId = admin.agencyId!;
       const existingAgency = await transaction.getAgency(agencyId);
+      const nextDisplayName = displayName ?? existingAgency?.displayName ?? 'Agence ATouPay';
 
       if (!existingAgency) {
         transaction.setAgency(agencyId, {
-          commissionRate,
+          commissionRate: 0,
           commissionType: 'percentage',
           createdAt: timestamp,
-          displayName: 'Agence ATouPay',
+          displayName: nextDisplayName,
+          ownerAccountFeeAmount: OWNER_ACCOUNT_FEE_AMOUNT,
+          ownerAccountFeeCurrency: OWNER_ACCOUNT_FEE_CURRENCY,
+          ownerAccountFeeIntervalDays: OWNER_ACCOUNT_FEE_INTERVAL_DAYS,
           updatedAt: timestamp,
         });
       } else {
         transaction.updateAgency(agencyId, {
-          commissionRate,
+          commissionRate: 0,
           commissionType: 'percentage',
+          displayName: nextDisplayName,
+          ownerAccountFeeAmount:
+            existingAgency.ownerAccountFeeAmount ?? OWNER_ACCOUNT_FEE_AMOUNT,
+          ownerAccountFeeCurrency:
+            existingAgency.ownerAccountFeeCurrency ?? OWNER_ACCOUNT_FEE_CURRENCY,
+          ownerAccountFeeIntervalDays:
+            existingAgency.ownerAccountFeeIntervalDays ?? OWNER_ACCOUNT_FEE_INTERVAL_DAYS,
           updatedAt: timestamp,
         });
       }
 
       return {
         agencyId,
-        commissionRate,
+        commissionRate: 0,
         commissionType: 'percentage',
-        displayName: existingAgency?.displayName ?? 'Agence ATouPay',
+        displayName: nextDisplayName,
+        legacyCommissionRate: existingAgency?.commissionRate ?? 0,
+        ownerAccountFeeAmount: existingAgency?.ownerAccountFeeAmount ?? OWNER_ACCOUNT_FEE_AMOUNT,
+        ownerAccountFeeCurrency:
+          existingAgency?.ownerAccountFeeCurrency ?? OWNER_ACCOUNT_FEE_CURRENCY,
+        ownerAccountFeeIntervalDays:
+          existingAgency?.ownerAccountFeeIntervalDays ?? OWNER_ACCOUNT_FEE_INTERVAL_DAYS,
       };
     });
   }
@@ -2484,7 +2962,7 @@ export class BackendService {
     const inviteId = hashInviteCode(normalizedCode);
     const timestamp = this.now().toISOString();
 
-    return this.repository.runTransaction(async (transaction) => {
+    const result = await this.repository.runTransaction(async (transaction) => {
       const existingUser = await transaction.getUser(identity.uid);
 
       if (existingUser?.role === 'tenant') {
@@ -2623,6 +3101,12 @@ export class BackendService {
         uid: identity.uid,
       };
     });
+
+    if (result.agencyId) {
+      await this.billingService.getOrCreateOwnerBillingAccount(result.ownerId, result.agencyId);
+    }
+
+    return result;
   }
 
   async redeemInvite(
@@ -2743,8 +3227,7 @@ export class BackendService {
 
       const paymentId = `rent-${tenantId}-${currentMonthKey(timestamp)}`;
       const existingPayment = await transaction.getPayment(paymentId);
-      const commissionRate = await this.resolveCommissionRate(transaction, ownerUser.agencyId ?? null);
-      const commissionLedger = calculateCommissionLedger(unit.rentAmount, commissionRate);
+      const rentLedger = calculateRentLedger(unit.rentAmount);
 
       const tenantDoc: TenantDoc = {
         createdAt: nowIso,
@@ -2779,22 +3262,26 @@ export class BackendService {
 
       if (!existingPayment) {
         transaction.setPayment(paymentId, {
-          agencyFeeAmount: commissionLedger.agencyFeeAmount,
+          agencyFeeAmount: rentLedger.agencyFeeAmount,
           agencyId: ownerUser.agencyId ?? null,
-          commissionRate: commissionLedger.commissionRate,
+          commissionRate: rentLedger.commissionRate,
           createdAt: nowIso,
           dueDate: currentMonthDueDate(timestamp),
-          grossAmount: unit.rentAmount,
+          grossAmount: rentLedger.grossAmount,
           monthKey: currentMonthKey(timestamp),
           ownerId: invite.ownerId,
-          ownerNetAmount: commissionLedger.ownerNetAmount,
+          ownerNetAmount: rentLedger.ownerNetAmount,
+          ownerReceivableAmount: rentLedger.ownerReceivableAmount,
           paidAt: null,
           paymentMethod: null,
           paymentStatus: 'pending',
+          platformRentFeeAmount: rentLedger.platformRentFeeAmount,
           propertyId: invite.propertyId,
           providerReference: null,
           receiptId: null,
+          rentAmount: rentLedger.rentAmount,
           tenantId,
+          tenantFeeAmount: rentLedger.tenantFeeAmount,
           unitId: invite.unitId,
           updatedAt: nowIso,
         });
@@ -3024,7 +3511,7 @@ export class BackendService {
       });
       this.createNotification(transaction, {
         agencyId: payment.agencyId,
-        body: `Paiement simulé reçu: brut ${payment.grossAmount}, net propriétaire ${payment.ownerNetAmount}.`,
+        body: `Loyer simulé reçu: ${payment.grossAmount}. Le montant enregistré correspond au loyer payé.`,
         relatedEntityId: input.paymentId,
         relatedEntityType: 'rentPayment',
         role: 'owner',
@@ -3036,7 +3523,7 @@ export class BackendService {
       if (payment.agencyId) {
         this.createNotification(transaction, {
           agencyId: payment.agencyId,
-          body: `Commission ledger calculée: ${payment.agencyFeeAmount}. Aucun split réel n’a été exécuté.`,
+          body: `Loyer simulé finalisé: ${payment.grossAmount}. Le montant enregistré correspond au loyer payé.`,
           relatedEntityId: input.paymentId,
           relatedEntityType: 'rentPayment',
           role: 'agency_admin',
@@ -3054,6 +3541,144 @@ export class BackendService {
         receipt: receiptOutputFromDoc(receipt),
       };
     });
+  }
+
+  async getOwnerBilling(identity: AuthContext): Promise<OwnerBillingSummary> {
+    const user = assertActiveOwner(await this.repository.getUser(identity.uid));
+    const currentTerms = await this.getOrCreateLegalTerms();
+    await this.repository.runTransaction(async (transaction) => {
+      const transactionalOwner = assertActiveOwner(await transaction.getUser(identity.uid));
+      await this.ensureAcceptedTerms(transaction, transactionalOwner, currentTerms);
+      return null;
+    });
+
+    return this.billingService.getOwnerBillingSummary(user.ownerId ?? identity.uid);
+  }
+
+  async payOwnerBillingSimulated(identity: AuthContext): Promise<OwnerBillingSummary> {
+    if (!isSimulatedOwnerBillingPaymentAllowed(this.config)) {
+      throw new AppError(
+        403,
+        'owner_billing_simulation_disabled',
+        'Le paiement simulé des frais propriétaire est désactivé dans cette configuration.',
+      );
+    }
+
+    const user = assertActiveOwner(await this.repository.getUser(identity.uid));
+    const ownerId = user.ownerId ?? identity.uid;
+
+    if (!user.agencyId) {
+      throw new AppError(
+        409,
+        'owner_agency_missing',
+        'Le propriétaire n’est rattaché à aucune agence.',
+      );
+    }
+
+    return this.billingService.markOwnerBillingInvoicePaid({
+      actorRole: 'owner',
+      actorUserId: user.uid,
+      agencyId: user.agencyId,
+      note: 'Paiement simulé depuis l’espace propriétaire.',
+      ownerId,
+      provider: 'simulated',
+      providerReference: `SIM-OWNER-FEE-${Date.now().toString(36).toUpperCase()}`,
+    });
+  }
+
+  async markAgencyOwnerBillingPaid(
+    identity: AuthContext,
+    ownerId: string,
+    input: AgencyManualOwnerBillingPaymentInput,
+  ): Promise<OwnerBillingSummary> {
+    const admin = assertAgencyAdmin(await this.repository.getUser(identity.uid));
+    const note = input.note.trim();
+
+    if (!note) {
+      throw new AppError(
+        400,
+        'owner_billing_note_required',
+        'Une note est requise pour enregistrer un paiement manuel.',
+      );
+    }
+
+    const owner = await this.repository.getUser(ownerId);
+
+    if (!owner || owner.role !== 'owner' || owner.ownerId !== ownerId || owner.agencyId !== admin.agencyId) {
+      throw new AppError(
+        404,
+        'owner_not_found',
+        'Ce propriétaire est introuvable dans votre agence.',
+      );
+    }
+
+    return this.billingService.markOwnerBillingInvoicePaid({
+      actorRole: 'agency_admin',
+      actorUserId: admin.uid,
+      agencyId: admin.agencyId!,
+      note,
+      ownerId,
+      provider: input.provider ?? 'manual',
+      ...(input.providerReference?.trim()
+        ? { providerReference: input.providerReference.trim() }
+        : {}),
+    });
+  }
+
+  async suspendAgencyOwnerBilling(
+    identity: AuthContext,
+    ownerId: string,
+    input: AgencySuspendOwnerBillingInput,
+  ): Promise<OwnerBillingSummary> {
+    const admin = assertAgencyAdmin(await this.repository.getUser(identity.uid));
+    const reason = input.reason.trim();
+
+    if (!reason) {
+      throw new AppError(
+        400,
+        'owner_billing_suspend_reason_required',
+        'Un motif est requis pour suspendre la facturation propriétaire.',
+      );
+    }
+
+    const owner = await this.repository.getUser(ownerId);
+
+    if (!owner || owner.role !== 'owner' || owner.ownerId !== ownerId || owner.agencyId !== admin.agencyId) {
+      throw new AppError(
+        404,
+        'owner_not_found',
+        'Ce propriétaire est introuvable dans votre agence.',
+      );
+    }
+
+    await this.billingService.getOrCreateOwnerBillingAccount(ownerId, admin.agencyId!);
+    return this.billingService.suspendOwnerBillingAccount(ownerId, reason, admin.uid);
+  }
+
+  async reactivateAgencyOwnerBilling(
+    identity: AuthContext,
+    ownerId: string,
+  ): Promise<OwnerBillingSummary> {
+    const admin = assertAgencyAdmin(await this.repository.getUser(identity.uid));
+    const owner = await this.repository.getUser(ownerId);
+
+    if (!owner || owner.role !== 'owner' || owner.ownerId !== ownerId || owner.agencyId !== admin.agencyId) {
+      throw new AppError(
+        404,
+        'owner_not_found',
+        'Ce propriétaire est introuvable dans votre agence.',
+      );
+    }
+
+    await this.billingService.getOrCreateOwnerBillingAccount(ownerId, admin.agencyId!);
+    return this.billingService.reactivateOwnerBillingAccount(ownerId, admin.uid);
+  }
+
+  async listAgencyOwnersBilling(identity: AuthContext): Promise<AgencyOwnerBillingSummary[]> {
+    const admin = assertAgencyAdmin(await this.repository.getUser(identity.uid));
+    const owners = await this.repository.listUsersByAgency(admin.agencyId!, 'owner');
+
+    return this.billingService.listAgencyOwnerBilling(admin.agencyId!, owners);
   }
 
   async getReceipt(identity: AuthContext, receiptId: string): Promise<ReceiptOutput> {

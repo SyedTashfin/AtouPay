@@ -210,28 +210,30 @@ service cloud.firestore {
         getAfter(unitPath(request.resource.data.unitId)).data.propertyId == request.resource.data.propertyId;
     }
 
-    function validCommissionLedger() {
+    // Legacy commission fields remain on rent payment documents for backward
+    // compatibility, but new tenant rent records must be zero-commission.
+    function validZeroRentLedger() {
       return
         request.resource.data.grossAmount is number &&
+        request.resource.data.rentAmount is number &&
+        request.resource.data.tenantFeeAmount is number &&
+        request.resource.data.platformRentFeeAmount is number &&
         request.resource.data.commissionRate is number &&
         request.resource.data.agencyFeeAmount is number &&
         request.resource.data.ownerNetAmount is number &&
-        request.resource.data.commissionRate >= 0 &&
-        request.resource.data.commissionRate <= 1 &&
-        request.resource.data.ownerNetAmount == request.resource.data.grossAmount - request.resource.data.agencyFeeAmount &&
-        (
-          request.resource.data.agencyId == null
-            ? request.resource.data.commissionRate == 0 && request.resource.data.agencyFeeAmount == 0
-            : exists(agencyPath(request.resource.data.agencyId)) &&
-              get(agencyPath(request.resource.data.agencyId)).data.commissionType == 'percentage' &&
-              get(agencyPath(request.resource.data.agencyId)).data.commissionRate == request.resource.data.commissionRate &&
-              request.resource.data.agencyFeeAmount == request.resource.data.grossAmount * request.resource.data.commissionRate
-        );
+        request.resource.data.ownerReceivableAmount is number &&
+        request.resource.data.grossAmount == request.resource.data.rentAmount &&
+        request.resource.data.tenantFeeAmount == 0 &&
+        request.resource.data.platformRentFeeAmount == 0 &&
+        request.resource.data.commissionRate == 0 &&
+        request.resource.data.agencyFeeAmount == 0 &&
+        request.resource.data.ownerNetAmount == request.resource.data.rentAmount &&
+        request.resource.data.ownerReceivableAmount == request.resource.data.rentAmount;
     }
 
     function validPaymentSeed() {
       return isSelf(request.resource.data.tenantId) &&
-        validCommissionLedger() &&
+        validZeroRentLedger() &&
         request.resource.data.paymentStatus == 'pending' &&
         request.resource.data.paymentMethod == null &&
         request.resource.data.receiptId == null &&
@@ -253,6 +255,10 @@ service cloud.firestore {
         request.resource.data.commissionRate == resource.data.commissionRate &&
         request.resource.data.agencyFeeAmount == resource.data.agencyFeeAmount &&
         request.resource.data.ownerNetAmount == resource.data.ownerNetAmount &&
+        request.resource.data.ownerReceivableAmount == resource.data.ownerReceivableAmount &&
+        request.resource.data.platformRentFeeAmount == resource.data.platformRentFeeAmount &&
+        request.resource.data.rentAmount == resource.data.rentAmount &&
+        request.resource.data.tenantFeeAmount == resource.data.tenantFeeAmount &&
         request.resource.data.grossAmount == resource.data.grossAmount &&
         request.resource.data.unitId == resource.data.unitId &&
         request.resource.data.propertyId == resource.data.propertyId &&

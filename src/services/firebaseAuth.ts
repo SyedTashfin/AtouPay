@@ -88,6 +88,7 @@ interface SignUpWithEmailPasswordInput {
 interface SignInWithEmailPasswordInput {
   email: string;
   password: string;
+  preferredRole?: Role;
 }
 
 let pendingGoogleCredential: ReturnType<typeof GoogleAuthProvider.credential> | null = null;
@@ -150,11 +151,15 @@ async function resolvePostAuthState(
     role?: Role;
   } = {},
 ): Promise<FirebaseAuthResult> {
-  const profile = await syncUserProfileFromAuthUser(user, options);
+  let profile = await syncUserProfileFromAuthUser(user);
+
+  if (!profile.role && options.role) {
+    profile = await ensureUserProfileRole(user, options.role);
+  }
 
   if (!profile.role) {
     return {
-      message: 'Choisissez Locataire, Propriétaire ou Agence pour finaliser votre espace ATouPay.',
+      message: 'Choisissez Locataire ou Propriétaire pour finaliser votre espace ATouPay.',
       profile,
       provider: getPrimaryAuthProvider(profile.authProviders, providerHint),
       status: 'needs-role',
@@ -278,6 +283,27 @@ export async function signUpWithEmailPassword(
       role: input.role,
     });
   } catch (error) {
+    if (getAuthErrorCode(error) === 'auth/email-already-in-use') {
+      try {
+        const credential = await signInWithEmailAndPassword(auth, email, input.password);
+
+        await linkGoogleToExistingPasswordAccountIfNeeded(credential.user);
+
+        // Existing accounts keep their stored backend role, so agency credentials
+        // entered from owner/tenant screens still route to the agency area.
+        return resolvePostAuthState(credential.user, 'password');
+      } catch (signInError) {
+        return {
+          code: getAuthErrorCode(signInError),
+          message: mapAuthErrorMessage(
+            signInError,
+            'Ce compte existe déjà. Connectez-vous avec le bon mot de passe.',
+          ),
+          status: 'error',
+        };
+      }
+    }
+
     return {
       code: getAuthErrorCode(error),
       message: mapAuthErrorMessage(error, 'La création du compte a échoué.'),
@@ -306,7 +332,9 @@ export async function signInWithEmailPassword(
 
     await linkGoogleToExistingPasswordAccountIfNeeded(credential.user);
 
-    return resolvePostAuthState(credential.user, 'password');
+    return resolvePostAuthState(credential.user, 'password', {
+      role: input.preferredRole,
+    });
   } catch (error) {
     return {
       code: getAuthErrorCode(error),

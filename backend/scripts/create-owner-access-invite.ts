@@ -7,6 +7,11 @@ import { Timestamp } from 'firebase-admin/firestore';
 import { loadConfig } from '../src/config/env.js';
 import { initializeFirebaseAdmin, createFirestore } from '../src/lib/firebase-admin.js';
 import { generateInviteCode, hashInviteCode } from '../src/lib/invite.js';
+import {
+  OWNER_ACCOUNT_FEE_AMOUNT,
+  OWNER_ACCOUNT_FEE_CURRENCY,
+  OWNER_ACCOUNT_FEE_INTERVAL_DAYS,
+} from '../src/billing/billingConstants.js';
 
 function buildOwnerAccessLink(baseUrl: string, inviteCode: string) {
   const separator = baseUrl.includes('?') ? '&' : '?';
@@ -46,9 +51,9 @@ async function main() {
     throw new Error('--days must be a positive integer.');
   }
 
-  const commissionRate = values.rate ? Number.parseFloat(values.rate) : 0.1;
+  const legacyRateInput = values.rate ? Number.parseFloat(values.rate) : 0;
 
-  if (!Number.isFinite(commissionRate) || commissionRate < 0 || commissionRate > 1) {
+  if (!Number.isFinite(legacyRateInput) || legacyRateInput < 0 || legacyRateInput > 1) {
     throw new Error('--rate must be a decimal between 0 and 1.');
   }
 
@@ -64,17 +69,23 @@ async function main() {
 
   if (!agencySnapshot.exists) {
     await agencyRef.set({
-      commissionRate,
+      commissionRate: 0,
       commissionType: 'percentage',
       createdAt: now,
       label: `Agence ${agencyId}`,
+      ownerAccountFeeAmount: OWNER_ACCOUNT_FEE_AMOUNT,
+      ownerAccountFeeCurrency: OWNER_ACCOUNT_FEE_CURRENCY,
+      ownerAccountFeeIntervalDays: OWNER_ACCOUNT_FEE_INTERVAL_DAYS,
       updatedAt: now,
     });
   } else {
     await agencyRef.set(
       {
-        commissionRate,
+        commissionRate: 0,
         commissionType: 'percentage',
+        ownerAccountFeeAmount: OWNER_ACCOUNT_FEE_AMOUNT,
+        ownerAccountFeeCurrency: OWNER_ACCOUNT_FEE_CURRENCY,
+        ownerAccountFeeIntervalDays: OWNER_ACCOUNT_FEE_INTERVAL_DAYS,
         updatedAt: now,
       },
       { merge: true },
@@ -99,12 +110,15 @@ async function main() {
     JSON.stringify(
       {
         agencyId,
-        commissionRate,
         email,
         expiresAt: expiresAt.toDate().toISOString(),
         inviteCode,
         inviteId,
+        legacyRateInputIgnored: legacyRateInput,
         link,
+        ownerAccountFeeAmount: OWNER_ACCOUNT_FEE_AMOUNT,
+        ownerAccountFeeCurrency: OWNER_ACCOUNT_FEE_CURRENCY,
+        ownerAccountFeeIntervalDays: OWNER_ACCOUNT_FEE_INTERVAL_DAYS,
         projectId: config.firebaseProjectId,
       },
       null,

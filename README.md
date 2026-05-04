@@ -74,19 +74,26 @@ Normal owner onboarding no longer depends on CLI-only invite issuance:
 - the active owner creates properties, units, and tenant invites
 - a tenant authenticates and redeems the unit invite
 - rent payments remain simulated, but the ledger now records:
+  - `rentAmount`
   - `grossAmount`
-  - `agencyFeeAmount`
-  - `ownerNetAmount`
-  - `commissionRate`
+  - `tenantFeeAmount: 0`
+  - `platformRentFeeAmount: 0`
+  - `agencyFeeAmount: 0` for backward compatibility
+  - `commissionRate: 0` for backward compatibility
+  - `ownerReceivableAmount`
   - `agencyId`
 - the backend now generates receipts and verification tokens for simulated payments
 
 Important:
 
-- commission is ledger automation only in this phase
+- there is no agency commission on tenant rent payments
+- tenants pay rent only and ATouPay charges no tenant fee
+- owners pay a separate 10 EUR account access fee every 6 weeks
+- owner access fees are separate from rent payments, rent receipts, and tenant payment screens
 - receipt generation is real
 - receipt QR/PDF/share are implemented for backend-issued receipts
 - notifications are in-app records only; push notifications are not configured yet
+- invite e-mail delivery is available through Resend when `RESEND_API_KEY` and `EMAIL_FROM` are configured on the backend
 - payment settlement is still simulated
 - no real banking or mobile money split disbursement is implied
 
@@ -177,7 +184,7 @@ Owner access is now agency-gated. For local testing, seed an owner access invite
 
 ```bash
 cd backend
-npm run owner-access:invite -- --agency agency-dev --email owner@example.com --rate 0.1
+npm run owner-access:invite -- --agency agency-dev --email owner@example.com
 ```
 
 Use the printed code in the app’s `Code d’accès agence` field, or open the printed `ownerInvite` deep link.
@@ -220,14 +227,23 @@ Then:
 
 The older CLI owner-invite script remains available for emergency/bootstrap use only. It is no longer the normal business workflow.
 
-### Commission settings
+### Owner account fee model
 
-Commission settings are stored in `agencies/{agencyId}` with:
+The current business model separates tenant rent from owner account access:
 
-- `commissionType: "percentage"`
-- `commissionRate`
+- tenants pay rent only
+- ATouPay charges no tenant fee
+- rent payments are not commission-split
+- new rent ledger records keep legacy `agencyFeeAmount` and `commissionRate` fields only for compatibility, with both values set to `0`
+- owners/landowners pay a separate account access fee of `10 EUR`
+- the owner access cycle is every `42` days, with a `7` day grace period
+- owner billing records live in `ownerBillingAccounts`, `ownerBillingInvoices`, and `ownerBillingPayments`
+- owner account fees never appear on tenant rent receipts
+- real owner-fee payment provider integration is not enabled yet; only simulated owner payment and agency manual mark-paid are implemented
+- in local payment provider integrations, the 10 EUR fee may need to be charged as an MRU equivalent if the provider supports MRU only
+- real payment confirmation must come from backend/provider confirmation, not a frontend success state
 
-Agency admins can update the percentage in-app. The new rate applies only to future simulated payment ledger entries and receipts.
+The old agency commission setting is deprecated and hidden from normal agency UI. Existing historical simulated records may still contain old commission fields, but new rent payments must not use them.
 
 ### Terms of use and responsibility
 
@@ -282,9 +298,10 @@ This is intentionally not a full ticketing suite. It is the minimum viable opera
 
 The app now has lightweight operational views without becoming a BI/admin suite:
 
-- agency dashboard: active owners/tenants, properties, units, pending owner invites, support status, payment status, and simulated commission totals
-- owner dashboard: properties, units, occupancy, tenant count, pending/paid/late payments, gross amount, agency fee, and owner net
+- agency dashboard: active owners/tenants, properties, units, pending owner invites, support status, payment status, and owner billing status
+- owner dashboard: properties, units, occupancy, tenant count, pending/paid/late rent payments, rent collected, and owner account access status
 - notification feed: in-app records only, visible from the bell icon and `/notifications`
+- invite emails: owner access invites and tenant unit invites can be sent through Resend when backend email env vars are configured
 - agency user registry: owners and tenants can be suspended or reactivated by agency admins
 - agency audit tab: recent operational events for invites, owner activation, support, payment completion, and account status changes
 
@@ -333,7 +350,60 @@ Before any real provider is enabled, the system still needs:
 - idempotent provider references
 - real failure/cancel/dispute handling
 - reconciliation against provider statements
-- verified split settlement or explicit non-split wording
+- confirmed provider settlement wording for rent payments and separate owner access fees
+
+### Payment module next-stage decision guide
+
+The next payment-development stage should keep the current simulated flow working while a real provider path is selected, designed, and verified behind the backend boundary.
+
+Current confirmed state:
+
+- tenants can complete a backend-owned simulated payment flow
+- the backend writes the paid payment state, provider reference, receipt number, receipt record, verification token, and audit log
+- the rent ledger stores rent amount, zero tenant fee, zero platform rent fee, zero legacy agency commission fields, agency ID, owner ID, tenant ID, property ID, and unit ID
+- owner account access billing is stored separately from rent in owner billing collections
+- supported payment labels in the app are `Bankily`, `Sedad`, `Masrvi`, and `Carte bancaire`
+- no real debit, wallet transfer, card authorization, bank settlement, payout, or split disbursement exists yet
+
+Decisions to make before coding the real payment module:
+
+| Decision area | Options to settle | Required outcome |
+| --- | --- | --- |
+| First provider | Bankily, Sedad, Masrvi, card processor, or aggregator | Choose one sandbox-first provider and document its API, webhook, refund, and payout support |
+| Merchant model | ATouPay as merchant, agency as merchant, owner as merchant, or provider-managed merchant | Define who receives funds, who signs provider/KYC agreements, and who handles payment support |
+| Settlement model | Direct owner rent payout, agency collection, platform collection, or separate owner access billing | Approve how rent movement stays separate from the 10 EUR owner account fee |
+| Receipt wording | Simulated receipt, provider-confirmed receipt, or settlement-confirmed receipt | Approve when a receipt can say payment is completed and what it legally proves |
+| Payment states | `pending`, `processing`, `paid`, `failed`, `cancelled`, `disputed`, `refunded` | Define status transitions, retry behavior, and user-facing messages |
+| Reconciliation | Manual CSV import, provider statement API, scheduled job, or admin review queue | Define how provider totals are matched to ATouPay payments and receipts |
+| Disputes/refunds | Provider-native flow, support-ticket workflow, or admin-only action | Define who can trigger reversals and what happens to receipts and ledger records |
+| Launch scope | Internal demo, one pilot agency, selected units, or all tenants | Pick a controlled rollout scope before production money movement |
+
+Recommended implementation sequence:
+
+1. Add provider-agnostic backend models for payment intents, payment attempts, provider transactions, webhook events, refunds/disputes, and reconciliation records.
+2. Keep the current simulated provider as the first adapter so the app can move to the new contract without enabling real money movement.
+3. Add backend endpoints for create intent, confirm attempt, provider webhook handling, payment status lookup, cancellation/failure, refund/dispute recording, and reconciliation review.
+4. Add security controls before any real provider call: Secret Manager or equivalent for credentials, webhook signature checks, replay protection, idempotency keys, audit logging, and least-privilege service accounts.
+5. Integrate one provider sandbox and test every expected and unexpected callback path before production credentials are added.
+6. Run a limited production pilot only after reconciliation, failure handling, support escalation, and receipt wording are approved.
+
+Do not start production payment integration until these inputs are available:
+
+- provider sandbox access, API documentation, webhook documentation, fee schedule, payout timing, and test credentials
+- legal/compliance decision for merchant of record, KYC ownership, data retention, refund handling, and dispute responsibility
+- approved settlement model for rent movement and separate owner account access fees, including what happens when a local provider only supports MRU
+- approved receipt wording for provider-confirmed payments and any settlement-not-yet-paid state
+- reconciliation plan covering duplicate callbacks, missing callbacks, partial failures, provider outages, chargebacks, refunds, and manual corrections
+- security plan for secrets, webhook verification, idempotency, audit logs, monitoring alerts, and incident response
+
+Suggested development acceptance gates:
+
+- existing simulated payment, receipt, QR verification, and PDF export still pass unchanged
+- duplicate provider callbacks cannot create duplicate receipts or double-mark a payment
+- failed, cancelled, disputed, and refunded states are visible to tenants and owners without implying a completed payment
+- provider secrets are never exposed to the Expo app, logs, README examples, or committed env files
+- provider reconciliation can prove that ATouPay ledger totals match provider totals for the pilot period
+- support/admin users can trace a payment from app payment ID to provider transaction ID, receipt ID, webhook event, and audit event
 
 ### Operational readiness notes
 
@@ -698,6 +768,39 @@ Android note:
 
 - Keep an Android OAuth client configured in Google Cloud for the app package and signing certificate fingerprints.
 - Do not add `EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID` to this repo. The installed `@react-native-google-signin/google-signin` library does not accept `androidClientId` in `GoogleSignin.configure(...)`.
+- For the current Android client-demo APK, register these exact values in Firebase / Google Cloud:
+  - package name: `com.atoupay.mobile.preview`
+  - current client-demo APK SHA-1: `18:91:A4:40:DD:B2:1A:73:A8:FC:B4:55:37:13:1B:4A:D3:CB:34:11`
+  - current client-demo APK SHA-256: `FC:7D:3C:9F:59:A6:D6:60:D0:15:43:65:8A:4B:2B:D3:21:DF:E9:8F:ED:2E:3A:0A:53:D6:A7:84:6B:D4:FF:53`
+  - SHA-1: `CC:B3:54:CD:30:6C:73:B6:62:9A:94:98:58:3F:9C:4E:E7:DB:B9:B6`
+  - SHA-256: `7F:38:4A:48:99:45:74:0A:6C:11:4A:D4:40:F8:68:27:F2:A9:5F:32:8F:7F:A0:E6:AE:1A:F6:74:EE:7F:E4:EF`
+
+Firebase Console fix for Android `DEVELOPER_ERROR` / Google login failure:
+
+1. Open Firebase Console > Project settings > General > Your apps.
+2. Select the Android app for `com.atoupay.mobile.preview`; if it does not exist, add a new Android app with that package name.
+3. Add the SHA-1 and SHA-256 fingerprints listed above to that Android app.
+4. Open Authentication > Sign-in method and confirm Google is enabled.
+5. Open Google Cloud Console > APIs & Services > Credentials and confirm there is an Android OAuth client for package `com.atoupay.mobile.preview` with the same SHA-1.
+6. Confirm the Web OAuth client used by Firebase is the value configured as `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` in the EAS preview environment.
+7. Wait a few minutes for OAuth propagation, then force close and reopen the installed app.
+
+Adding SHA fingerprints is server-side; it usually does not require rebuilding the APK. Rebuild only if the package name, signing key, or native Google Sign-In plugin configuration changes.
+
+Current tested Android client-demo APK:
+
+- Direct APK: `https://expo.dev/artifacts/eas/xnCz6kseHEpnrzKcUQ7Eqt.apk`
+- Build page: `https://expo.dev/accounts/tashfin101/projects/atoupay/builds/fe10747d-07e0-42d7-9ad7-74abbc196c93`
+- Native Android `versionCode`: `3`
+- The client-demo build shows a role-specific `Remplir le compte démo` button so testers do not have to type demo credentials manually.
+
+To verify a future APK before sending it to a tester:
+
+```bash
+APK=/path/to/atoupay.apk
+"$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | head -1
+"$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$APK"
+```
 
 Recommended local placement:
 

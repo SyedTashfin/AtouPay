@@ -7,6 +7,8 @@ const placeholderApiBaseUrl = 'https://placeholder-api.atoupay.local';
 interface AppExtraConfig {
   apiBaseUrl: string;
   appVariant: AppVariant;
+  clientDemoMode?: boolean;
+  clientDemoPassword?: string;
   easProjectId?: string;
   enableDevTools: boolean;
   firebaseApiKey?: string;
@@ -59,6 +61,9 @@ const configuredApiBaseUrl =
 export const appConfig: AppExtraConfig = {
   apiBaseUrl: configuredApiBaseUrl ?? resolveDefaultLocalApiBaseUrl(),
   appVariant,
+  clientDemoMode: normalizeBoolean(extra.clientDemoMode, false),
+  clientDemoPassword:
+    typeof extra.clientDemoPassword === 'string' ? extra.clientDemoPassword : undefined,
   easProjectId: typeof extra.easProjectId === 'string' ? extra.easProjectId : undefined,
   enableDevTools: normalizeBoolean(extra.enableDevTools, appVariant !== 'production'),
   firebaseApiKey:
@@ -87,6 +92,8 @@ export const appConfig: AppExtraConfig = {
 
 export const isDebugToolsEnabled = appConfig.enableDevTools;
 export const isBackendEnabled = appConfig.useBackend === true;
+export const isClientDemoMode =
+  appConfig.appVariant === 'preview' && appConfig.clientDemoMode === true;
 export const isProductionVariant = appConfig.appVariant === 'production';
 export const buildVariantBadgeLabel =
   appConfig.appVariant === 'preview'

@@ -2,6 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { BannerTone } from '@/src/types';
+import { useI18n } from '@/src/i18n/I18nProvider';
 import { colors } from '@/src/theme/colors';
 import { radius } from '@/src/theme/radius';
 import { spacing } from '@/src/theme/spacing';
@@ -25,22 +26,22 @@ const toneStyles: Record<
   }
 > = {
   error: {
-    backgroundColor: 'rgba(251, 231, 229, 0.88)',
-    borderColor: 'rgba(169, 61, 61, 0.18)',
+    backgroundColor: colors.dangerSoft,
+    borderColor: colors.dangerSoft,
     icon: 'alert-circle',
     iconColor: colors.danger,
     textColor: colors.danger,
   },
   info: {
-    backgroundColor: 'rgba(223, 244, 234, 0.88)',
-    borderColor: colors.border,
+    backgroundColor: colors.infoSoft,
+    borderColor: colors.infoSoft,
     icon: 'info',
-    iconColor: colors.primaryDark,
-    textColor: colors.primaryDark,
+    iconColor: colors.info,
+    textColor: colors.info,
   },
   success: {
-    backgroundColor: 'rgba(226, 245, 235, 0.9)',
-    borderColor: colors.border,
+    backgroundColor: colors.successSoft,
+    borderColor: colors.successSoft,
     icon: 'check-circle',
     iconColor: colors.success,
     textColor: colors.success,
@@ -53,13 +54,17 @@ export function BannerNotice({
   title,
   tone = 'info',
 }: BannerNoticeProps) {
+  const { copy, isRtl } = useI18n();
   const toneStyle = toneStyles[tone];
+  const localizedTitle = copy(title);
+  const localizedDescription = copy(description);
 
   return (
     <View
-      accessibilityLabel={title}
+      accessibilityLabel={localizedTitle}
       style={[
         styles.container,
+        isRtl && styles.containerRtl,
         {
           backgroundColor: toneStyle.backgroundColor,
           borderColor: toneStyle.borderColor,
@@ -67,13 +72,17 @@ export function BannerNotice({
       ]}>
       <Feather color={toneStyle.iconColor} name={toneStyle.icon} size={18} />
       <View style={styles.copy}>
-        <Text style={[styles.title, { color: toneStyle.textColor }]}>{title}</Text>
-        <Text style={styles.description}>{description}</Text>
+        <Text style={[styles.title, isRtl && styles.rtlText, { color: toneStyle.textColor }]}>
+          {localizedTitle}
+        </Text>
+        <Text style={[styles.description, isRtl && styles.rtlText]}>
+          {localizedDescription}
+        </Text>
       </View>
       {onDismiss ? (
         <Pressable
-          accessibilityHint="Masque cette information dans les prochaines visites"
-          accessibilityLabel={`Fermer ${title}`}
+          accessibilityHint={copy('Masque cette information dans les prochaines visites')}
+          accessibilityLabel={`${copy('Fermer')} ${localizedTitle}`}
           accessibilityRole="button"
           hitSlop={8}
           onPress={onDismiss}
@@ -94,6 +103,9 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     padding: spacing.sm,
   },
+  containerRtl: {
+    flexDirection: 'row-reverse',
+  },
   copy: {
     flex: 1,
     gap: 4,
@@ -113,5 +125,8 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.7,
+  },
+  rtlText: {
+    writingDirection: 'rtl',
   },
 });

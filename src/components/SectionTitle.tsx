@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { useI18n } from '@/src/i18n/I18nProvider';
 import { colors } from '@/src/theme/colors';
 import { spacing } from '@/src/theme/spacing';
 import { typography } from '@/src/theme/typography';
@@ -17,19 +18,21 @@ export function SectionTitle({
   actionLabel,
   onActionPress,
 }: SectionTitleProps) {
+  const { copy, isRtl } = useI18n();
+
   return (
-    <View style={styles.row}>
+    <View style={[styles.row, isRtl && styles.rowRtl]}>
       <View style={styles.copy}>
-        <Text style={styles.title}>{title}</Text>
-        {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+        <Text style={[styles.title, isRtl && styles.rtlText]}>{copy(title)}</Text>
+        {subtitle ? <Text style={[styles.subtitle, isRtl && styles.rtlText]}>{copy(subtitle)}</Text> : null}
       </View>
       {actionLabel && onActionPress ? (
         <Pressable
-          accessibilityLabel={actionLabel}
+          accessibilityLabel={copy(actionLabel)}
           accessibilityRole="button"
           onPress={onActionPress}
           style={({ pressed }) => pressed && styles.pressed}>
-          <Text style={styles.action}>{actionLabel}</Text>
+          <Text style={styles.action}>{copy(actionLabel)}</Text>
         </Pressable>
       ) : null}
     </View>
@@ -42,6 +45,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: spacing.sm,
+  },
+  rowRtl: {
+    flexDirection: 'row-reverse',
   },
   copy: {
     flex: 1,
@@ -62,5 +68,7 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.7,
   },
+  rtlText: {
+    writingDirection: 'rtl',
+  },
 });
-

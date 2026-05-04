@@ -1,6 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import { StyleSheet, Text, View } from 'react-native';
 
+import { useI18n } from '@/src/i18n/I18nProvider';
 import { colors } from '@/src/theme/colors';
 import { radius } from '@/src/theme/radius';
 import { shadows } from '@/src/theme/shadows';
@@ -47,24 +48,31 @@ export function JourneyCard({
   title,
   tone = 'primary',
 }: JourneyCardProps) {
+  const { copy, isRtl } = useI18n();
   const toneColor = toneColors[tone];
 
   return (
     <View style={styles.card}>
       <View style={styles.header}>
-        <Text style={styles.title}>{title}</Text>
-        {description ? <Text style={styles.description}>{description}</Text> : null}
+        <Text style={[styles.title, isRtl && styles.rtlText]}>{copy(title)}</Text>
+        {description ? (
+          <Text style={[styles.description, isRtl && styles.rtlText]}>
+            {copy(description)}
+          </Text>
+        ) : null}
       </View>
 
       <View style={styles.steps}>
         {steps.map((step, index) => (
-          <View key={`${step.title}-${index}`} style={styles.step}>
+          <View key={`${step.title}-${index}`} style={[styles.step, isRtl && styles.stepRtl]}>
             <View style={[styles.iconWrap, { backgroundColor: toneColor.background }]}>
               <Feather color={toneColor.color} name={step.iconName} size={18} />
             </View>
             <View style={styles.stepCopy}>
-              <Text style={styles.stepTitle}>{step.title}</Text>
-              <Text style={styles.stepDescription}>{step.description}</Text>
+              <Text style={[styles.stepTitle, isRtl && styles.rtlText]}>{copy(step.title)}</Text>
+              <Text style={[styles.stepDescription, isRtl && styles.rtlText]}>
+                {copy(step.description)}
+              </Text>
             </View>
           </View>
         ))}
@@ -102,6 +110,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
   },
+  stepRtl: {
+    flexDirection: 'row-reverse',
+  },
   iconWrap: {
     alignItems: 'center',
     borderRadius: radius.pill,
@@ -122,5 +133,8 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     flexShrink: 1,
     ...typography.caption,
+  },
+  rtlText: {
+    writingDirection: 'rtl',
   },
 });

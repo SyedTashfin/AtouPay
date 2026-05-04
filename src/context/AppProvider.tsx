@@ -128,11 +128,12 @@ function sortPayments(a: PaymentRecord, b: PaymentRecord) {
 }
 
 function getOwnerNetAmount(payment: PaymentRecord) {
-  return payment.ownerNetAmount ?? payment.amount;
+  return payment.ownerReceivableAmount ?? payment.rentAmount ?? payment.amount;
 }
 
 function getAgencyFeeAmount(payment: PaymentRecord) {
-  return payment.agencyFeeAmount ?? 0;
+  void payment;
+  return 0;
 }
 
 function normalizePaymentFilters(

@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { PrimaryButton } from '@/src/components/PrimaryButton';
 import { AuthField } from '@/src/components/auth/AuthField';
+import { useI18n } from '@/src/i18n/I18nProvider';
 import { colors } from '@/src/theme/colors';
 import { radius } from '@/src/theme/radius';
 import { shadows } from '@/src/theme/shadows';
@@ -29,12 +30,14 @@ export function InviteClaimCard({
   onPasteCode,
   onSubmit,
 }: InviteClaimCardProps) {
+  const { copy, isRtl } = useI18n();
+
   return (
     <View style={styles.card}>
       <View style={styles.copy}>
-        <Text style={styles.title}>Rejoindre mon unité</Text>
-        <Text style={styles.description}>
-          Saisissez le code transmis par le propriétaire pour rattacher ce compte à une seule unité.
+        <Text style={[styles.title, isRtl && styles.rtlText]}>{copy('Ajouter mon logement')}</Text>
+        <Text style={[styles.description, isRtl && styles.rtlText]}>
+          {copy('Collez le code donné par votre propriétaire. Il rattache ce compte à votre appartement.')}
         </Text>
       </View>
 
@@ -43,7 +46,7 @@ export function InviteClaimCard({
         autoCorrect={false}
         error={errorMessage}
         helper={helperMessage}
-        label="Code d’invitation"
+        label="Code logement"
         onChangeText={onChangeCode}
         placeholder="ATPA-1234-5678-90AB"
         value={code}
@@ -52,29 +55,29 @@ export function InviteClaimCard({
       <View style={styles.actionsRow}>
         {onPasteCode ? (
           <Pressable
-            accessibilityHint="Colle un code d’invitation depuis le presse-papiers"
-            accessibilityLabel="Coller le code"
+            accessibilityHint={copy('Colle un code d’invitation depuis le presse-papiers')}
+            accessibilityLabel={copy('Coller le code')}
             accessibilityRole="button"
             onPress={onPasteCode}
             style={({ pressed }) => [styles.clearButton, pressed && styles.pressed]}>
-            <Text style={styles.clearText}>Coller le code</Text>
+            <Text style={styles.clearText}>{copy('Coller le code')}</Text>
           </Pressable>
         ) : null}
 
         {onClearDetectedCode ? (
           <Pressable
-            accessibilityHint="Efface le code détecté pour saisir une autre invitation"
-            accessibilityLabel="Effacer le code détecté"
+            accessibilityHint={copy('Efface le code détecté pour saisir une autre invitation')}
+            accessibilityLabel={copy('Effacer le code détecté')}
             accessibilityRole="button"
             onPress={onClearDetectedCode}
             style={({ pressed }) => [styles.clearButton, pressed && styles.pressed]}>
-            <Text style={styles.clearText}>Effacer ce code</Text>
+            <Text style={styles.clearText}>{copy('Effacer ce code')}</Text>
           </Pressable>
         ) : null}
       </View>
 
       <PrimaryButton
-        accessibilityHint="Valide l’invitation et rattache ce compte à l’unité ciblée"
+        accessibilityHint="Valide le code et rattache ce compte au logement ciblé"
         disabled={code.trim().length < 8}
         label="Rattacher mon logement"
         loading={loading}
@@ -119,5 +122,8 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.75,
+  },
+  rtlText: {
+    writingDirection: 'rtl',
   },
 });

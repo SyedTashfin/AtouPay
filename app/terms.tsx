@@ -12,6 +12,7 @@ import { PrimaryButton } from '@/src/components/PrimaryButton';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
 import { getLegalTermsViaBackend, getTermsStatusViaBackend, acceptTermsViaBackend, mapBackendErrorToMessage } from '@/src/services/backendApi';
 import { useSession } from '@/src/context/SessionProvider';
+import { useI18n } from '@/src/i18n/I18nProvider';
 import { LegalTermsRecord, TermsAcceptanceStatus } from '@/src/types';
 import { colors } from '@/src/theme/colors';
 import { radius } from '@/src/theme/radius';
@@ -44,6 +45,7 @@ export default function TermsScreen() {
     reportAuthEvent,
     session,
   } = useSession();
+  const { copy } = useI18n();
   const [terms, setTerms] = useState<LegalTermsRecord | null>(null);
   const [termsStatus, setTermsStatus] = useState<TermsAcceptanceStatus | null>(null);
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
@@ -218,7 +220,7 @@ export default function TermsScreen() {
             </View>
 
             <View style={styles.statementCard}>
-              <Text style={styles.sectionTitle}>Responsabilité</Text>
+              <Text style={styles.sectionTitle}>{copy('Responsabilité')}</Text>
               <Text style={styles.sectionBody}>{terms.responsibilityStatement}</Text>
               <Text style={styles.supportPath}>{terms.supportPath}</Text>
             </View>

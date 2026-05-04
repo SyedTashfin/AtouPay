@@ -46,7 +46,7 @@ export default function AgencyLayout() {
       <Tabs.Screen
         name="invites"
         options={{
-          title: 'Invitations',
+          title: 'Inviter',
           tabBarAccessibilityLabel: 'Invitations agence',
           tabBarIcon: ({ color, size }) => (
             <Ionicons color={color} name="mail-open-outline" size={size} />
@@ -76,11 +76,7 @@ export default function AgencyLayout() {
       <Tabs.Screen
         name="audit"
         options={{
-          title: 'Audit',
-          tabBarAccessibilityLabel: 'Audit agence',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons color={color} name="pulse-outline" size={size} />
-          ),
+          href: null,
         }}
       />
     </Tabs>

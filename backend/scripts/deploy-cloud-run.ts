@@ -128,6 +128,13 @@ async function main() {
     `HOST: ${quoteYamlScalar('0.0.0.0')}`,
     `LOG_LEVEL: ${quoteYamlScalar('info')}`,
     `NODE_ENV: ${quoteYamlScalar('production')}`,
+    ...(config.isEmailEnabled && config.resendApiKey && config.emailFrom
+      ? [
+          `EMAIL_FROM: ${quoteYamlScalar(config.emailFrom)}`,
+          ...(config.emailReplyTo ? [`EMAIL_REPLY_TO: ${quoteYamlScalar(config.emailReplyTo)}`] : []),
+          `RESEND_API_KEY: ${quoteYamlScalar(config.resendApiKey)}`,
+        ]
+      : []),
     ...(credentials
       ? [
           `FIREBASE_CLIENT_EMAIL: ${quoteYamlScalar(credentials.clientEmail)}`,

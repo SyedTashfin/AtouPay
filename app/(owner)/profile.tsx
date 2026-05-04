@@ -32,7 +32,7 @@ export default function OwnerProfileScreen() {
 
   const totalCollected = ownerPayments
     .filter((payment) => payment.status === 'paid')
-    .reduce((total, payment) => total + (payment.ownerNetAmount ?? payment.amount), 0);
+    .reduce((total, payment) => total + (payment.ownerReceivableAmount ?? payment.rentAmount ?? payment.amount), 0);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -66,6 +66,11 @@ export default function OwnerProfileScreen() {
           <InfoRow label="Téléphone" value={accountPhone} />
           <InfoRow label="Compte connecté" value={accountEmail} />
           <InfoRow label="Connexion" value={providerLabel} />
+          <InfoRow
+            label="Langue"
+            onPress={() => router.push('/language' as never)}
+            value="Français, العربية, English"
+          />
           {canLinkPassword ? (
             <InfoRow
               label="Ajouter un mot de passe"
@@ -113,7 +118,7 @@ export default function OwnerProfileScreen() {
 
 const styles = StyleSheet.create({
   safeArea: {
-    backgroundColor: colors.background,
+    backgroundColor: colors.role.owner.background,
     flex: 1,
   },
   content: {

@@ -8,7 +8,7 @@ import {
   SupportRequestStatus,
 } from '@/src/types';
 
-export const authRoute = '/auth/login' as const;
+export const authRoute = '/auth' as const;
 export const verificationRoute = '/auth/verify-email' as const;
 
 export const roleHomeRoutes = {

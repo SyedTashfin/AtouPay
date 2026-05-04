@@ -19,6 +19,12 @@ import { typography } from '@/src/theme/typography';
 import { NotificationRecord } from '@/src/types';
 import { formatDateTimeLabel } from '@/src/utils/dates';
 
+const visibleNotificationTypes = new Set<NotificationRecord['type']>([
+  'payment_completed',
+  'payment_overdue',
+  'rent_due_reminder',
+]);
+
 function NotificationRow({
   notification,
   onMarkRead,
@@ -60,7 +66,11 @@ export default function NotificationsScreen() {
         const nextNotifications = await listNotificationsViaBackend();
 
         if (isMounted) {
-          setNotifications(nextNotifications);
+          setNotifications(
+            nextNotifications.filter((notification) =>
+              visibleNotificationTypes.has(notification.type),
+            ),
+          );
         }
       } catch (loadError) {
         if (!isMounted) {
@@ -108,7 +118,7 @@ export default function NotificationsScreen() {
         keyExtractor={(item) => item.id}
         ListEmptyComponent={
           <ListEmptyState
-            description="Les événements importants apparaîtront ici: paiements simulés, invitations, support et rappels."
+            description="Seuls les rappels de loyer, retards et paiements reçus apparaissent ici."
             title="Aucune notification"
           />
         }
@@ -117,7 +127,7 @@ export default function NotificationsScreen() {
             <ScreenHeader
               onBackPress={() => router.back()}
               showBackButton
-              subtitle="Flux d’événements in-app. Le push n’est pas activé dans cette version."
+              subtitle="Seulement les alertes utiles: paiement reçu, rappel, retard."
               title="Notifications"
             />
             {error ? (

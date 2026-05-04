@@ -2,6 +2,7 @@ import { auth } from '@/src/lib/firebase';
 import { appConfig, isBackendEnabled } from '@/src/config/env';
 import {
   AgencyOwnerSummary,
+  AgencyOwnerBillingSummary,
   AgencyDashboardSummary,
   AgencySettingsState,
   AgencyUserSummary,
@@ -11,6 +12,7 @@ import {
   LegalTermsRecord,
   NotificationRecord,
   OwnerBackendDashboardSummary,
+  OwnerBillingSummary,
   OwnerAccessInviteSummary,
   PaymentProvider,
   ProfileContactState,
@@ -60,6 +62,10 @@ interface CreateUnitResponse {
   propertyId: string;
 }
 
+interface DeleteInventoryResponse {
+  id: string;
+}
+
 interface CreateInviteResponse {
   expiresAt: string;
   inviteCode: string;
@@ -96,13 +102,17 @@ interface CompleteSimulatedPaymentResponse {
     monthKey: string;
     ownerId: string;
     ownerNetAmount: number;
+    ownerReceivableAmount?: number;
     paidAt: string | null;
     paymentMethod: string | null;
     paymentStatus: 'cancelled' | 'disputed' | 'failed' | 'late' | 'paid' | 'pending';
+    platformRentFeeAmount?: number;
     propertyId: string;
     providerReference: string | null;
     receiptId: string | null;
+    rentAmount?: number;
     tenantId: string;
+    tenantFeeAmount?: number;
     unitId: string;
     updatedAt: string;
   };
@@ -183,7 +193,9 @@ async function requestJson<T>(
   }
 
   const headers = new Headers(init?.headers);
-  headers.set('Content-Type', 'application/json');
+  if (init?.body !== undefined && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
 
   if (options?.requireAuth !== false) {
     headers.set('Authorization', `Bearer ${await getFirebaseIdToken()}`);
@@ -366,6 +378,7 @@ export async function createOwnerPropertyViaBackend(input: {
 export async function createOwnerUnitViaBackend(input: {
   currency: string;
   label: string;
+  notes?: string | null;
   propertyId: string;
   rentAmount: number;
 }) {
@@ -373,11 +386,66 @@ export async function createOwnerUnitViaBackend(input: {
     body: JSON.stringify({
       currency: input.currency.trim(),
       label: input.label.trim(),
+      ...(input.notes?.trim() ? { notes: input.notes.trim() } : {}),
       propertyId: input.propertyId,
       rentAmount: input.rentAmount,
     }),
     method: 'POST',
   });
+}
+
+export async function updateOwnerPropertyViaBackend(input: {
+  address: string;
+  label: string;
+  propertyId: string;
+}) {
+  return requestJson<CreatePropertyResponse>(
+    `/v1/owner/properties/${encodeURIComponent(input.propertyId)}`,
+    {
+      body: JSON.stringify({
+        address: input.address.trim(),
+        label: input.label.trim(),
+      }),
+      method: 'PATCH',
+    },
+  );
+}
+
+export async function deleteOwnerPropertyViaBackend(propertyId: string) {
+  return requestJson<DeleteInventoryResponse>(
+    `/v1/owner/properties/${encodeURIComponent(propertyId)}`,
+    {
+      method: 'DELETE',
+    },
+  );
+}
+
+export async function updateOwnerUnitViaBackend(input: {
+  label: string;
+  notes?: string | null;
+  rentAmount: number;
+  unitId: string;
+}) {
+  return requestJson<CreateUnitResponse>(
+    `/v1/owner/units/${encodeURIComponent(input.unitId)}`,
+    {
+      body: JSON.stringify({
+        label: input.label.trim(),
+        notes: input.notes?.trim() ? input.notes.trim() : null,
+        rentAmount: input.rentAmount,
+      }),
+      method: 'PATCH',
+    },
+  );
+}
+
+export async function deleteOwnerUnitViaBackend(unitId: string) {
+  return requestJson<DeleteInventoryResponse>(
+    `/v1/owner/units/${encodeURIComponent(unitId)}`,
+    {
+      method: 'DELETE',
+    },
+  );
 }
 
 export async function createTenantInviteViaBackend(input: {
@@ -437,6 +505,15 @@ export async function revokeOwnerAccessInviteViaBackend(inviteId: string) {
     `/v1/agency/owner-access-invites/${encodeURIComponent(inviteId)}/revoke`,
     {
       method: 'POST',
+    },
+  );
+}
+
+export async function deleteOwnerAccessInviteViaBackend(inviteId: string) {
+  return requestJson<{ id: string }>(
+    `/v1/agency/owner-access-invites/${encodeURIComponent(inviteId)}`,
+    {
+      method: 'DELETE',
     },
   );
 }
@@ -514,14 +591,77 @@ export async function getAgencySettingsViaBackend() {
 }
 
 export async function updateAgencySettingsViaBackend(input: {
-  commissionRate: number;
+  displayName?: string;
 }) {
   return requestJson<AgencySettingsState>('/v1/agency/settings', {
     body: JSON.stringify({
-      commissionRate: input.commissionRate,
+      ...(input.displayName?.trim() ? { displayName: input.displayName.trim() } : {}),
     }),
     method: 'PATCH',
   });
+}
+
+export async function getOwnerBillingViaBackend() {
+  return requestJson<OwnerBillingSummary>('/v1/owner/billing', {
+    method: 'GET',
+  });
+}
+
+export async function payOwnerBillingSimulatedViaBackend() {
+  return requestJson<OwnerBillingSummary>('/v1/owner/billing/pay-simulated', {
+    method: 'POST',
+  });
+}
+
+export async function listAgencyOwnerBillingViaBackend() {
+  return requestJson<AgencyOwnerBillingSummary[]>('/v1/agency/owners/billing', {
+    method: 'GET',
+  });
+}
+
+export async function markAgencyOwnerBillingPaidViaBackend(input: {
+  note: string;
+  ownerId: string;
+  provider?: 'manual' | 'simulated';
+  providerReference?: string;
+}) {
+  return requestJson<OwnerBillingSummary>(
+    `/v1/agency/owners/${encodeURIComponent(input.ownerId)}/billing/mark-paid`,
+    {
+      body: JSON.stringify({
+        note: input.note,
+        ...(input.provider ? { provider: input.provider } : {}),
+        ...(input.providerReference?.trim()
+          ? { providerReference: input.providerReference.trim() }
+          : {}),
+      }),
+      method: 'POST',
+    },
+  );
+}
+
+export async function suspendAgencyOwnerBillingViaBackend(input: {
+  ownerId: string;
+  reason: string;
+}) {
+  return requestJson<OwnerBillingSummary>(
+    `/v1/agency/owners/${encodeURIComponent(input.ownerId)}/billing/suspend`,
+    {
+      body: JSON.stringify({
+        reason: input.reason,
+      }),
+      method: 'POST',
+    },
+  );
+}
+
+export async function reactivateAgencyOwnerBillingViaBackend(ownerId: string) {
+  return requestJson<OwnerBillingSummary>(
+    `/v1/agency/owners/${encodeURIComponent(ownerId)}/billing/reactivate`,
+    {
+      method: 'POST',
+    },
+  );
 }
 
 export async function completeSimulatedPaymentViaBackend(input: {

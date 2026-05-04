@@ -3,6 +3,8 @@ import path from 'node:path';
 
 import { ZodError, z } from 'zod';
 
+export type AppVariant = 'development' | 'preview' | 'production';
+export type PaymentProviderMode = 'manual' | 'moosyl' | 'simulated' | 'stripe';
 export type RuntimeMode = 'cloud-run' | 'full-local-emulator' | 'hybrid-local';
 export type CredentialStrategy =
   | 'application-default'
@@ -16,23 +18,34 @@ interface EmulatorEndpoint {
   raw: string;
 }
 
+const optionalEnvString = z.preprocess(
+  (value) => (typeof value === 'string' && value.trim().length === 0 ? undefined : value),
+  z.string().trim().min(1).optional(),
+);
+
 const envSchema = z.object({
+  APP_VARIANT: z.enum(['development', 'preview', 'production']).default('development'),
   APP_INVITE_BASE_URL: z.string().min(1).default('atoupay://auth/login'),
-  FIREBASE_AUTH_EMULATOR_HOST: z.string().trim().min(1).optional(),
-  FIREBASE_CLIENT_EMAIL: z.string().trim().min(1).optional(),
-  FIREBASE_PRIVATE_KEY: z.string().trim().min(1).optional(),
+  FIREBASE_AUTH_EMULATOR_HOST: optionalEnvString,
+  FIREBASE_CLIENT_EMAIL: optionalEnvString,
+  FIREBASE_PRIVATE_KEY: optionalEnvString,
   FIREBASE_PROJECT_ID: z.string().trim().min(1, 'FIREBASE_PROJECT_ID is required'),
-  FIRESTORE_EMULATOR_HOST: z.string().trim().min(1).optional(),
-  GOOGLE_APPLICATION_CREDENTIALS: z.string().trim().min(1).optional(),
+  FIRESTORE_EMULATOR_HOST: optionalEnvString,
+  GOOGLE_APPLICATION_CREDENTIALS: optionalEnvString,
   HOST: z.string().trim().min(1).default('0.0.0.0'),
   LOG_LEVEL: z
     .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
     .default('info'),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  PAYMENT_PROVIDER: z.enum(['manual', 'moosyl', 'simulated', 'stripe']).default('simulated'),
   PORT: z.coerce.number().int().positive().default(3001),
+  EMAIL_FROM: optionalEnvString,
+  EMAIL_REPLY_TO: optionalEnvString,
+  RESEND_API_KEY: optionalEnvString,
 });
 
 export interface AppConfig {
+  appVariant: AppVariant;
   authEmulator?: EmulatorEndpoint;
   credentialStrategy: CredentialStrategy;
   firebaseAuthEmulatorHost?: string;
@@ -44,11 +57,16 @@ export interface AppConfig {
   googleApplicationCredentials?: string;
   host: string;
   inviteBaseUrl: string;
+  emailFrom?: string;
+  emailReplyTo?: string;
+  isEmailEnabled: boolean;
   isAuthEmulatorEnabled: boolean;
   isFirestoreEmulatorEnabled: boolean;
   logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
   nodeEnv: 'development' | 'production' | 'test';
+  paymentProvider: PaymentProviderMode;
   port: number;
+  resendApiKey?: string;
   runtimeMode: RuntimeMode;
 }
 
@@ -204,6 +222,17 @@ function validatePortCollisions(input: {
   }
 }
 
+function validateEmailInputs(input: {
+  emailFrom: string | undefined;
+  resendApiKey: string | undefined;
+}) {
+  if (Boolean(input.emailFrom) !== Boolean(input.resendApiKey)) {
+    throw new Error(
+      'RESEND_API_KEY and EMAIL_FROM must be provided together to enable invite email delivery.',
+    );
+  }
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   try {
     const parsed = envSchema.parse(env);
@@ -232,6 +261,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       firestoreEmulator,
       port: parsed.PORT,
     });
+    validateEmailInputs({
+      emailFrom: parsed.EMAIL_FROM,
+      resendApiKey: parsed.RESEND_API_KEY,
+    });
 
     const credentialStrategy = resolveCredentialStrategy({
       googleApplicationCredentials: parsed.GOOGLE_APPLICATION_CREDENTIALS,
@@ -241,6 +274,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     });
 
     return {
+      appVariant: parsed.APP_VARIANT,
       ...(authEmulator
         ? {
             authEmulator,
@@ -272,11 +306,28 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         : {}),
       host: parsed.HOST,
       inviteBaseUrl: parsed.APP_INVITE_BASE_URL,
+      ...(parsed.EMAIL_FROM
+        ? {
+            emailFrom: parsed.EMAIL_FROM,
+          }
+        : {}),
+      ...(parsed.EMAIL_REPLY_TO
+        ? {
+            emailReplyTo: parsed.EMAIL_REPLY_TO,
+          }
+        : {}),
+      isEmailEnabled: Boolean(parsed.RESEND_API_KEY && parsed.EMAIL_FROM),
       isAuthEmulatorEnabled: Boolean(authEmulator),
       isFirestoreEmulatorEnabled: Boolean(firestoreEmulator),
       logLevel: parsed.LOG_LEVEL,
       nodeEnv: parsed.NODE_ENV,
+      paymentProvider: parsed.PAYMENT_PROVIDER,
       port: parsed.PORT,
+      ...(parsed.RESEND_API_KEY
+        ? {
+            resendApiKey: parsed.RESEND_API_KEY,
+          }
+        : {}),
       runtimeMode,
     };
   } catch (error) {

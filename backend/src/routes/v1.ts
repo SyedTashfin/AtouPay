@@ -63,9 +63,17 @@ const createPropertyResponseSchema = Type.Object({
   ok: Type.Literal(true),
 });
 
+const updatePropertyBodySchema = Type.Object({
+  address: Type.String({ minLength: 1, maxLength: 240 }),
+  label: Type.String({ minLength: 1, maxLength: 120 }),
+});
+
+const updatePropertyResponseSchema = createPropertyResponseSchema;
+
 const createUnitBodySchema = Type.Object({
   currency: Type.String({ minLength: 1, maxLength: 8 }),
   label: Type.String({ minLength: 1, maxLength: 120 }),
+  notes: Type.Optional(Type.String({ maxLength: 500 })),
   propertyId: Type.String({ minLength: 1 }),
   rentAmount: Type.Number({ exclusiveMinimum: 0 }),
 });
@@ -75,6 +83,21 @@ const createUnitResponseSchema = Type.Object({
     id: Type.String(),
     ownerId: Type.String(),
     propertyId: Type.String(),
+  }),
+  ok: Type.Literal(true),
+});
+
+const updateUnitBodySchema = Type.Object({
+  label: Type.String({ minLength: 1, maxLength: 120 }),
+  notes: Type.Optional(Type.Union([Type.String({ maxLength: 500 }), Type.Null()])),
+  rentAmount: Type.Number({ exclusiveMinimum: 0 }),
+});
+
+const updateUnitResponseSchema = createUnitResponseSchema;
+
+const deleteInventoryResponseSchema = Type.Object({
+  data: Type.Object({
+    id: Type.String(),
   }),
   ok: Type.Literal(true),
 });
@@ -196,7 +219,10 @@ const supportStatusBreakdownSchema = Type.Object({
 const moneySummarySchema = Type.Object({
   agencyFeeAmount: Type.Number(),
   grossAmount: Type.Number(),
+  ownerReceivableAmount: Type.Number(),
   ownerNetAmount: Type.Number(),
+  platformRentFeeAmount: Type.Number(),
+  tenantFeeAmount: Type.Number(),
 });
 
 const dashboardQuerySchema = Type.Object({
@@ -249,6 +275,12 @@ const notificationTypeSchema = Type.Union([
   Type.Literal('account_reactivated'),
   Type.Literal('account_suspended'),
   Type.Literal('owner_activated'),
+  Type.Literal('owner_billing_due'),
+  Type.Literal('owner_billing_grace_period'),
+  Type.Literal('owner_billing_paid'),
+  Type.Literal('owner_billing_past_due'),
+  Type.Literal('owner_billing_reactivated'),
+  Type.Literal('owner_billing_suspended'),
   Type.Literal('owner_invite_created'),
   Type.Literal('payment_completed'),
   Type.Literal('payment_overdue'),
@@ -291,7 +323,11 @@ const auditEventTypeSchema = Type.Union([
   Type.Literal('account_reactivated'),
   Type.Literal('account_suspended'),
   Type.Literal('owner_activated'),
+  Type.Literal('owner_billing_paid'),
+  Type.Literal('owner_billing_reactivated'),
+  Type.Literal('owner_billing_suspended'),
   Type.Literal('owner_invite_created'),
+  Type.Literal('owner_invite_deleted'),
   Type.Literal('owner_invite_revoked'),
   Type.Literal('payment_completed'),
   Type.Literal('support_request_created'),
@@ -326,6 +362,10 @@ const agencySettingsSchema = Type.Object({
   commissionRate: Type.Number(),
   commissionType: Type.Literal('percentage'),
   displayName: Type.String(),
+  legacyCommissionRate: Type.Number(),
+  ownerAccountFeeAmount: Type.Number(),
+  ownerAccountFeeCurrency: Type.Literal('EUR'),
+  ownerAccountFeeIntervalDays: Type.Number(),
 });
 
 const agencySettingsResponseSchema = Type.Object({
@@ -334,7 +374,7 @@ const agencySettingsResponseSchema = Type.Object({
 });
 
 const updateAgencySettingsBodySchema = Type.Object({
-  commissionRate: Type.Number({ minimum: 0, maximum: 1 }),
+  displayName: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
 });
 
 const legalTermsSchema = Type.Object({
@@ -562,13 +602,17 @@ const completeSimulatedPaymentResponseSchema = Type.Object({
       monthKey: Type.String(),
       ownerId: Type.String(),
       ownerNetAmount: Type.Number(),
+      ownerReceivableAmount: Type.Optional(Type.Number()),
       paidAt: Type.Union([Type.String(), Type.Null()]),
       paymentMethod: Type.Union([Type.String(), Type.Null()]),
       paymentStatus: paymentStatusSchema,
+      platformRentFeeAmount: Type.Optional(Type.Number()),
       propertyId: Type.String(),
       providerReference: Type.Union([Type.String(), Type.Null()]),
       receiptId: Type.Union([Type.String(), Type.Null()]),
+      rentAmount: Type.Optional(Type.Number()),
       tenantId: Type.String(),
+      tenantFeeAmount: Type.Optional(Type.Number()),
       unitId: Type.String(),
       updatedAt: Type.String(),
     }),
@@ -601,6 +645,7 @@ const verifyReceiptResponseSchema = Type.Object({
 const protectedErrorResponses = {
   400: errorResponseSchema,
   401: errorResponseSchema,
+  402: errorResponseSchema,
   403: errorResponseSchema,
   404: errorResponseSchema,
   409: errorResponseSchema,
@@ -882,6 +927,24 @@ export const v1Routes: FastifyPluginAsyncTypebox = async (app) => {
     }),
   );
 
+  app.delete(
+    '/v1/agency/owner-access-invites/:inviteId',
+    {
+      preHandler: app.authenticate,
+      schema: {
+        params: revokeOwnerAccessInviteParamsSchema,
+        response: {
+          200: deleteInventoryResponseSchema,
+          ...protectedErrorResponses,
+        },
+      },
+    },
+    async (request) => ({
+      data: await app.services.deleteOwnerAccessInvite(request.auth!, request.params),
+      ok: true as const,
+    }),
+  );
+
   app.get(
     '/v1/agency/dashboard',
     {
@@ -1049,6 +1112,51 @@ export const v1Routes: FastifyPluginAsyncTypebox = async (app) => {
       }),
   );
 
+  app.patch(
+    '/v1/owner/properties/:propertyId',
+    {
+      preHandler: app.authenticate,
+      schema: {
+        body: updatePropertyBodySchema,
+        params: Type.Object({
+          propertyId: Type.String({ minLength: 1 }),
+        }),
+        response: {
+          200: updatePropertyResponseSchema,
+          ...protectedErrorResponses,
+        },
+      },
+    },
+    async (request) => ({
+      data: await app.services.updateOwnerProperty(
+        request.auth!,
+        request.params.propertyId,
+        request.body,
+      ),
+      ok: true as const,
+    }),
+  );
+
+  app.delete(
+    '/v1/owner/properties/:propertyId',
+    {
+      preHandler: app.authenticate,
+      schema: {
+        params: Type.Object({
+          propertyId: Type.String({ minLength: 1 }),
+        }),
+        response: {
+          200: deleteInventoryResponseSchema,
+          ...protectedErrorResponses,
+        },
+      },
+    },
+    async (request) => ({
+      data: await app.services.deleteOwnerProperty(request.auth!, request.params.propertyId),
+      ok: true as const,
+    }),
+  );
+
   app.post(
     '/v1/owner/units',
     {
@@ -1066,6 +1174,47 @@ export const v1Routes: FastifyPluginAsyncTypebox = async (app) => {
         data: await app.services.createOwnerUnit(request.auth!, request.body),
         ok: true as const,
       }),
+  );
+
+  app.patch(
+    '/v1/owner/units/:unitId',
+    {
+      preHandler: app.authenticate,
+      schema: {
+        body: updateUnitBodySchema,
+        params: Type.Object({
+          unitId: Type.String({ minLength: 1 }),
+        }),
+        response: {
+          200: updateUnitResponseSchema,
+          ...protectedErrorResponses,
+        },
+      },
+    },
+    async (request) => ({
+      data: await app.services.updateOwnerUnit(request.auth!, request.params.unitId, request.body),
+      ok: true as const,
+    }),
+  );
+
+  app.delete(
+    '/v1/owner/units/:unitId',
+    {
+      preHandler: app.authenticate,
+      schema: {
+        params: Type.Object({
+          unitId: Type.String({ minLength: 1 }),
+        }),
+        response: {
+          200: deleteInventoryResponseSchema,
+          ...protectedErrorResponses,
+        },
+      },
+    },
+    async (request) => ({
+      data: await app.services.deleteOwnerUnit(request.auth!, request.params.unitId),
+      ok: true as const,
+    }),
   );
 
   app.post(

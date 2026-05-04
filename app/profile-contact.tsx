@@ -4,8 +4,8 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BannerNotice } from '@/src/components/BannerNotice';
+import { AppPinSettingsCard } from '@/src/components/AppPinSettingsCard';
 import { JourneyCard } from '@/src/components/JourneyCard';
-import { LanguageSelector } from '@/src/components/LanguageSelector';
 import { PrimaryButton } from '@/src/components/PrimaryButton';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
 import { AuthCard } from '@/src/components/auth/AuthCard';
@@ -16,6 +16,7 @@ import {
   updateProfileContactViaBackend,
 } from '@/src/services/backendApi';
 import { RecoveryContactPreference } from '@/src/types';
+import { sendPhoneOtp, verifyPhoneOtp, type PhoneOtpChallenge } from '@/src/services/phoneOtp';
 import { colors } from '@/src/theme/colors';
 import { spacing } from '@/src/theme/spacing';
 import { typography } from '@/src/theme/typography';
@@ -31,6 +32,10 @@ const preferences: RecoveryContactPreference[] = ['email', 'phone'];
 export default function ProfileContactScreen() {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [phoneStatus, setPhoneStatus] = useState<'unverified' | 'verified' | null>(null);
+  const [otpCode, setOtpCode] = useState('');
+  const [otpChallenge, setOtpChallenge] = useState<PhoneOtpChallenge | null>(null);
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const [preference, setPreference] = useState<RecoveryContactPreference>('email');
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -47,6 +52,8 @@ export default function ProfileContactScreen() {
 
         setPhoneNumber(profileContact.phoneNumber ?? '');
         setPhoneStatus(profileContact.phoneVerificationStatus);
+        setOtpChallenge(null);
+        setOtpCode('');
         setPreference(profileContact.recoveryContactPreference ?? 'email');
       })
       .catch((error) => {
@@ -71,6 +78,71 @@ export default function ProfileContactScreen() {
     };
   }, []);
 
+  const handleSendOtp = async () => {
+    setIsSendingOtp(true);
+    setFeedback(null);
+
+    try {
+      const challenge = await sendPhoneOtp(phoneNumber);
+      setOtpChallenge(challenge);
+      setPhoneStatus('unverified');
+      setFeedback({
+        description: 'Code SMS envoyé. Entrez le code reçu pour associer ce numéro à votre compte Firebase.',
+        title: 'Vérification envoyée',
+        tone: 'success',
+      });
+    } catch (error) {
+      setFeedback({
+        description: error instanceof Error ? error.message : 'Le SMS de vérification n’a pas pu être envoyé.',
+        title: 'Envoi OTP impossible',
+        tone: 'error',
+      });
+    } finally {
+      setIsSendingOtp(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    if (!otpChallenge) {
+      setFeedback({
+        description: 'Demandez d’abord un code SMS pour ce numéro.',
+        title: 'Code manquant',
+        tone: 'error',
+      });
+      return;
+    }
+
+    setIsVerifyingOtp(true);
+    setFeedback(null);
+
+    try {
+      const verifiedPhoneNumber = await verifyPhoneOtp(otpChallenge, otpCode);
+      const updated = await updateProfileContactViaBackend({
+        phoneNumber: verifiedPhoneNumber ?? phoneNumber.trim(),
+        recoveryContactPreference: preference,
+      });
+
+      setPhoneNumber(updated.phoneNumber ?? verifiedPhoneNumber ?? phoneNumber.trim());
+      setPhoneStatus(updated.phoneVerificationStatus);
+      setPreference(updated.recoveryContactPreference ?? preference);
+      setOtpChallenge(null);
+      setOtpCode('');
+      setFeedback({
+        description: 'Le numéro est vérifié par Firebase Phone Auth et enregistré comme contact de récupération.',
+        title: 'Téléphone vérifié',
+        tone: 'success',
+      });
+    } catch (error) {
+      setFeedback({
+        description: error instanceof Error ? error.message : 'Le code SMS n’a pas pu être confirmé.',
+        title: 'Vérification impossible',
+        tone: 'error',
+      });
+    } finally {
+      setIsVerifyingOtp(false);
+    }
+  };
+
   const handleSave = async () => {
     setIsSaving(true);
     setFeedback(null);
@@ -86,7 +158,9 @@ export default function ProfileContactScreen() {
       setPreference(updated.recoveryContactPreference ?? 'email');
       setFeedback({
         description:
-          'Les coordonnées ont été enregistrées. La récupération par téléphone reste conditionnée à l’activation future de Firebase Phone Auth.',
+          updated.phoneVerificationStatus === 'verified'
+            ? 'Les coordonnées vérifiées par Firebase Phone Auth ont été enregistrées.'
+            : 'Les coordonnées ont été enregistrées. Envoyez et confirmez le code SMS pour activer la récupération par téléphone.',
         title: 'Coordonnées enregistrées',
         tone: 'success',
       });
@@ -128,7 +202,7 @@ export default function ProfileContactScreen() {
               title: 'Récupération e-mail',
             },
             {
-              description: 'Le téléphone aide l’agence à vous rappeler, mais il ne vérifie pas encore le compte.',
+              description: 'Le téléphone vérifié par SMS peut être enregistré comme canal de récupération.',
               iconName: 'phone',
               title: 'Contact de rappel',
             },
@@ -142,20 +216,60 @@ export default function ProfileContactScreen() {
           tone="neutral"
         />
 
-        <LanguageSelector />
+        <AppPinSettingsCard />
 
         <AuthCard
-          description="La réinitialisation e-mail reste disponible via Firebase. Le téléphone est stocké comme contact de rappel agence tant que Firebase Phone Auth n’est pas activé."
+          description="La réinitialisation e-mail reste disponible via Firebase. Le téléphone peut maintenant être confirmé par SMS avec Firebase Phone Auth avant d’être utilisé comme contact de récupération."
           title="Coordonnées de récupération">
           <AuthField
             autoCapitalize="none"
             helper="Optionnel. Utilisé par l’agence pour vous recontacter si besoin."
             keyboardType="phone-pad"
             label="Téléphone"
-            onChangeText={setPhoneNumber}
+            onChangeText={(value) => {
+              setPhoneNumber(value);
+              setPhoneStatus(value.trim() ? 'unverified' : null);
+              setOtpChallenge(null);
+              setOtpCode('');
+            }}
             placeholder="+222 36 00 00 00"
             value={phoneNumber}
           />
+
+          <View style={styles.preferenceRow}>
+            <PrimaryButton
+              accessibilityHint="Envoie un SMS OTP Firebase pour vérifier ce numéro"
+              disabled={isLoading || !phoneNumber.trim() || phoneStatus === 'verified'}
+              label={phoneStatus === 'verified' ? 'Téléphone déjà vérifié' : 'Envoyer un code SMS'}
+              loading={isSendingOtp}
+              onPress={() => {
+                void handleSendOtp();
+              }}
+              variant="secondary"
+            />
+            {otpChallenge ? (
+              <>
+                <AuthField
+                  autoCapitalize="none"
+                  helper="Code reçu par SMS via Firebase Phone Auth."
+                  keyboardType="number-pad"
+                  label="Code SMS"
+                  onChangeText={setOtpCode}
+                  placeholder="123456"
+                  value={otpCode}
+                />
+                <PrimaryButton
+                  accessibilityHint="Confirme le code SMS et lie le numéro au compte Firebase"
+                  disabled={!otpCode.trim()}
+                  label="Confirmer le code SMS"
+                  loading={isVerifyingOtp}
+                  onPress={() => {
+                    void handleVerifyOtp();
+                  }}
+                />
+              </>
+            ) : null}
+          </View>
 
           <View style={styles.preferenceRow}>
             {preferences.map((item) => (
@@ -169,7 +283,7 @@ export default function ProfileContactScreen() {
           </View>
 
           <Text style={styles.helperText}>
-            {`Statut téléphone: ${phoneStatus === 'verified' ? 'vérifié' : phoneStatus === 'unverified' ? 'non vérifié' : 'non renseigné'}. La récupération par téléphone n’est pas encore activée côté Firebase. Si vous choisissez cette préférence, elle servira à guider l’agence pour un rappel et des instructions sécurisées, sans prise de contrôle directe du compte.`}
+            {`Statut téléphone: ${phoneStatus === 'verified' ? 'vérifié Firebase' : phoneStatus === 'unverified' ? 'code SMS non confirmé' : 'non renseigné'}. Pour activer la récupération par téléphone, envoyez le code SMS puis confirmez-le; le serveur vérifie ensuite que le numéro correspond au numéro Firebase du compte.`}
           </Text>
 
           <PrimaryButton

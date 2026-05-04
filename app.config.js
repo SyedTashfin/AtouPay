@@ -1,3 +1,47 @@
+const fs = require('fs');
+const path = require('path');
+
+function loadEnvFile(fileName) {
+  const envPath = path.resolve(__dirname, fileName);
+
+  if (!fs.existsSync(envPath)) {
+    return;
+  }
+
+  const lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+
+    if (!line || line.startsWith('#') || !line.includes('=')) {
+      continue;
+    }
+
+    const separatorIndex = line.indexOf('=');
+    const key = line.slice(0, separatorIndex).trim();
+
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || process.env[key] != null) {
+      continue;
+    }
+
+    let value = line.slice(separatorIndex + 1).trim();
+
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+
+    process.env[key] = value;
+  }
+}
+
+// Expo CLI loads .env files for the JS bundle, but dynamic config is evaluated
+// earlier. Load local public config here so Constants.expoConfig.extra is complete.
+loadEnvFile('.env.local');
+loadEnvFile('.env');
+
 const appVariant = process.env.APP_VARIANT ?? 'development';
 const appVersion = '1.0.0';
 const apiBaseUrl =
@@ -10,6 +54,8 @@ const enableDevTools =
   process.env.EXPO_PUBLIC_ENABLE_DEV_TOOLS != null
     ? process.env.EXPO_PUBLIC_ENABLE_DEV_TOOLS === 'true'
     : appVariant !== 'production';
+const clientDemoMode = process.env.EXPO_PUBLIC_CLIENT_DEMO_MODE === 'true';
+const clientDemoPassword = process.env.EXPO_PUBLIC_CLIENT_DEMO_PASSWORD;
 const googleWebClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
 const googleIosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
 const googleIosUrlScheme = process.env.EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME;
@@ -79,10 +125,18 @@ module.exports = () => ({
       supportsTablet: true,
     },
     android: {
+      blockedPermissions: [
+        'android.permission.READ_EXTERNAL_STORAGE',
+        'android.permission.SYSTEM_ALERT_WINDOW',
+        'android.permission.USE_BIOMETRIC',
+        'android.permission.USE_FINGERPRINT',
+        'android.permission.VIBRATE',
+        'android.permission.WRITE_EXTERNAL_STORAGE',
+      ],
       edgeToEdgeEnabled: true,
       package: `com.atoupay.mobile${variantSuffix}`,
       predictiveBackGestureEnabled: false,
-      versionCode: 1,
+      versionCode: 6,
     },
     web: {
       bundler: 'metro',
@@ -97,6 +151,8 @@ module.exports = () => ({
         appVariant,
         ...(easProjectId ? { easProjectId } : {}),
         enableDevTools,
+        clientDemoMode,
+        ...(clientDemoPassword ? { clientDemoPassword } : {}),
         useBackend,
         ...(firebaseApiKey ? { firebaseApiKey } : {}),
         ...(firebaseAppId ? { firebaseAppId } : {}),

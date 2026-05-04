@@ -19,6 +19,12 @@ export type NotificationType =
   | 'account_reactivated'
   | 'account_suspended'
   | 'owner_activated'
+  | 'owner_billing_due'
+  | 'owner_billing_grace_period'
+  | 'owner_billing_paid'
+  | 'owner_billing_past_due'
+  | 'owner_billing_reactivated'
+  | 'owner_billing_suspended'
   | 'owner_invite_created'
   | 'payment_completed'
   | 'payment_overdue'
@@ -31,7 +37,11 @@ export type AuditEventType =
   | 'account_reactivated'
   | 'account_suspended'
   | 'owner_activated'
+  | 'owner_billing_paid'
+  | 'owner_billing_reactivated'
+  | 'owner_billing_suspended'
   | 'owner_invite_created'
+  | 'owner_invite_deleted'
   | 'owner_invite_revoked'
   | 'payment_completed'
   | 'support_request_created'
@@ -39,7 +49,8 @@ export type AuditEventType =
   | 'tenant_invite_created'
   | 'tenant_invite_redeemed';
 
-export type AuthProvider = 'google' | 'password';
+export type AuthProvider = 'google' | 'password' | 'phone';
+export type PhoneVerificationStatus = 'unverified' | 'verified';
 
 export interface AuthContext {
   uid: string;
@@ -47,6 +58,7 @@ export interface AuthContext {
   emailVerified: boolean;
   displayName: string | null;
   photoUrl: string | null;
+  phoneNumber: string | null;
   providers: AuthProvider[];
   primaryProvider: AuthProvider | null;
 }
@@ -63,6 +75,7 @@ export interface UserDoc {
   ownerId: string | null;
   tenantId: string | null;
   phoneNumber: string | null;
+  phoneVerificationStatus: PhoneVerificationStatus | null;
   recoveryContactPreference: RecoveryContactPreference | null;
   supportRecoveryStatus: SupportRequestStatus | null;
   emailVerified: boolean;
@@ -79,10 +92,15 @@ export interface OwnerDoc {
 }
 
 export interface AgencyDoc {
+  // Deprecated: kept only so historical agency documents still deserialize.
+  // New tenant rent payments must not use agency commission settings.
   commissionType: CommissionType;
   commissionRate: number;
   createdAt: string;
   displayName: string;
+  ownerAccountFeeAmount?: number;
+  ownerAccountFeeCurrency?: 'EUR';
+  ownerAccountFeeIntervalDays?: number;
   updatedAt: string;
 }
 
@@ -145,6 +163,7 @@ export interface UnitDoc {
   propertyId: string;
   ownerId: string;
   label: string;
+  notes?: string | null;
   rentAmount: number;
   currency: string;
   tenantId: string | null;
@@ -189,9 +208,15 @@ export interface RentPaymentDoc {
   dueDate: string;
   monthKey: string;
   grossAmount: number;
+  rentAmount?: number;
+  tenantFeeAmount?: number;
+  platformRentFeeAmount?: number;
+  // Deprecated compatibility ledger fields. New rent payments must store
+  // commissionRate/agencyFeeAmount as 0 and ownerNetAmount as rentAmount.
   commissionRate: number;
   agencyFeeAmount: number;
   ownerNetAmount: number;
+  ownerReceivableAmount?: number;
   paymentMethod: string | null;
   paymentStatus: PaymentStatus;
   providerReference: string | null;
@@ -202,6 +227,8 @@ export interface RentPaymentDoc {
 }
 
 export interface ReceiptDoc {
+  // Deprecated rent commission fields retained for old receipt documents.
+  // Current rent receipts must not display these fields to users.
   agencyFeeAmount: number;
   agencyDisplayName: string;
   agencyId: string | null;

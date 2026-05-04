@@ -5,11 +5,16 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { loadConfig } from '../src/config/env.js';
 import { hashStableValue } from '../src/lib/invite.js';
 import { initializeFirebaseAdmin } from '../src/lib/firebase-admin.js';
+import {
+  OWNER_ACCOUNT_FEE_AMOUNT,
+  OWNER_ACCOUNT_FEE_CURRENCY,
+  OWNER_ACCOUNT_FEE_INTERVAL_DAYS,
+} from '../src/billing/billingConstants.js';
 
 interface CliArgs {
   agencyId: string;
   agencyName: string;
-  commissionRate: number;
+  legacyCommissionRateInput: number;
   email: string;
 }
 
@@ -37,21 +42,21 @@ function parseArgs(argv: string[]): CliArgs {
   const email = values.get('email')?.trim().toLowerCase();
   const agencyId = values.get('agency-id')?.trim() ?? 'agency-dev';
   const agencyName = values.get('agency-name')?.trim() ?? 'Agence ATouPay';
-  const commissionRateRaw = values.get('commission-rate')?.trim() ?? '0';
-  const commissionRate = Number.parseFloat(commissionRateRaw);
+  const legacyCommissionRateRaw = values.get('commission-rate')?.trim() ?? '0';
+  const legacyCommissionRateInput = Number.parseFloat(legacyCommissionRateRaw);
 
   if (!email || !email.includes('@')) {
-    throw new Error('Usage: npm run agency-admin:bootstrap -- --email admin@example.com [--agency-id agency-dev] [--agency-name "Agence ATouPay"] [--commission-rate 0.1]');
+    throw new Error('Usage: npm run agency-admin:bootstrap -- --email admin@example.com [--agency-id agency-dev] [--agency-name "Agence ATouPay"]');
   }
 
-  if (!Number.isFinite(commissionRate) || commissionRate < 0 || commissionRate > 1) {
-    throw new Error('--commission-rate must be a number between 0 and 1.');
+  if (!Number.isFinite(legacyCommissionRateInput) || legacyCommissionRateInput < 0 || legacyCommissionRateInput > 1) {
+    throw new Error('--commission-rate is deprecated and, when present, must be a number between 0 and 1.');
   }
 
   return {
     agencyId,
     agencyName,
-    commissionRate,
+    legacyCommissionRateInput,
     email,
   };
 }
@@ -92,10 +97,13 @@ async function main() {
 
   if (!existingAgency.exists) {
     batch.set(agencyRef, {
-      commissionRate: args.commissionRate,
+      commissionRate: 0,
       commissionType: 'percentage',
       createdAt: now,
       displayName: args.agencyName,
+      ownerAccountFeeAmount: OWNER_ACCOUNT_FEE_AMOUNT,
+      ownerAccountFeeCurrency: OWNER_ACCOUNT_FEE_CURRENCY,
+      ownerAccountFeeIntervalDays: OWNER_ACCOUNT_FEE_INTERVAL_DAYS,
       updatedAt: now,
     });
   } else {
@@ -103,6 +111,9 @@ async function main() {
       agencyRef,
       {
         displayName: args.agencyName,
+        ownerAccountFeeAmount: OWNER_ACCOUNT_FEE_AMOUNT,
+        ownerAccountFeeCurrency: OWNER_ACCOUNT_FEE_CURRENCY,
+        ownerAccountFeeIntervalDays: OWNER_ACCOUNT_FEE_INTERVAL_DAYS,
         updatedAt: now,
       },
       { merge: true },
@@ -127,7 +138,10 @@ async function main() {
         agencyId: args.agencyId,
         agencyName: args.agencyName,
         bootstrapId,
-        commissionRate: args.commissionRate,
+        legacyCommissionRateInputIgnored: args.legacyCommissionRateInput,
+        ownerAccountFeeAmount: OWNER_ACCOUNT_FEE_AMOUNT,
+        ownerAccountFeeCurrency: OWNER_ACCOUNT_FEE_CURRENCY,
+        ownerAccountFeeIntervalDays: OWNER_ACCOUNT_FEE_INTERVAL_DAYS,
         email: args.email,
         message:
           'Agency admin bootstrap created. The user can now sign in and choose the Agence role to claim access.',

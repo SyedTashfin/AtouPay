@@ -5,7 +5,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BannerNotice } from '@/src/components/BannerNotice';
 import { InfoRow } from '@/src/components/InfoRow';
-import { LanguageSelector } from '@/src/components/LanguageSelector';
 import { PrimaryButton } from '@/src/components/PrimaryButton';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
 import { AuthCard } from '@/src/components/auth/AuthCard';
@@ -29,7 +28,6 @@ interface FeedbackState {
 export default function AgencySettingsScreen() {
   const { signOut } = useSession();
   const [displayName, setDisplayName] = useState('Agence ATouPay');
-  const [commissionRateInput, setCommissionRateInput] = useState('0');
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -45,7 +43,6 @@ export default function AgencySettingsScreen() {
         }
 
         setDisplayName(settings.displayName);
-        setCommissionRateInput(String(Math.round(settings.commissionRate * 100)));
       } catch (error) {
         if (!isMounted) {
           return;
@@ -67,12 +64,12 @@ export default function AgencySettingsScreen() {
   }, []);
 
   const handleSave = async () => {
-    const normalizedPercentage = Number.parseFloat(commissionRateInput.replace(',', '.'));
+    const normalizedDisplayName = displayName.trim();
 
-    if (!Number.isFinite(normalizedPercentage) || normalizedPercentage < 0 || normalizedPercentage > 100) {
+    if (!normalizedDisplayName) {
       setFeedback({
-        description: 'Saisissez un pourcentage compris entre 0 et 100.',
-        title: 'Commission invalide',
+        description: 'Saisissez le nom affiché de l’agence.',
+        title: 'Nom agence invalide',
         tone: 'error',
       });
       return;
@@ -83,20 +80,19 @@ export default function AgencySettingsScreen() {
 
     try {
       const settings = await updateAgencySettingsViaBackend({
-        commissionRate: normalizedPercentage / 100,
+        displayName: normalizedDisplayName,
       });
 
       setDisplayName(settings.displayName);
-      setCommissionRateInput(String(Math.round(settings.commissionRate * 100)));
       setFeedback({
         description:
-          'Le nouveau taux sera appliqué uniquement aux futurs paiements simulés. Les écritures historiques ne sont pas réécrites.',
-        title: 'Commission enregistrée',
+          'Le nom affiché est enregistré. Les frais d’accès propriétaire restent séparés des loyers.',
+        title: 'Réglages enregistrés',
         tone: 'success',
       });
     } catch (error) {
       setFeedback({
-        description: mapBackendErrorToMessage(error, "La commission n’a pas pu être mise à jour."),
+        description: mapBackendErrorToMessage(error, "Les réglages agence n’ont pas pu être mis à jour."),
         title: 'Enregistrement impossible',
         tone: 'error',
       });
@@ -109,8 +105,8 @@ export default function AgencySettingsScreen() {
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <ScreenHeader
-          subtitle="Réglages opératoires appliqués aux écritures futures de commission."
-          title="Commission agence"
+          subtitle="Frais d’accès propriétaire séparés des loyers et des quittances locataire."
+          title="Facturation propriétaire"
         />
 
         {feedback ? (
@@ -121,29 +117,26 @@ export default function AgencySettingsScreen() {
           />
         ) : null}
 
-        <LanguageSelector />
-
         <AuthCard
-          description="Le taux est stocké dans l’agence et repris automatiquement lors du paiement simulé."
+          description="Les loyers restent séparés de la facturation ATouPay. Les propriétaires paient un frais d’accès séparé."
           title={displayName}>
           <AuthField
-            autoCapitalize="none"
+            autoCapitalize="words"
             autoCorrect={false}
-            helper="Valeur en pourcentage. Exemple: 12.5 pour 12,5 %."
-            keyboardType="decimal-pad"
-            label="Commission agence (%)"
-            onChangeText={setCommissionRateInput}
-            placeholder="0"
-            value={commissionRateInput}
+            helper="Nom visible dans l’espace agence et sur les reçus lorsque disponible."
+            label="Nom de l’agence"
+            onChangeText={setDisplayName}
+            placeholder="Agence ATouPay"
+            value={displayName}
           />
 
           <Text style={styles.helperText}>
-            Aucun split bancaire réel n’est exécuté. La commission reste une écriture de ledger tant que les paiements ATouPay demeurent simulés.
+            Frais d’accès propriétaire: 10 EUR toutes les 6 semaines. Ce frais garde le compte propriétaire actif et ne doit jamais apparaître comme une charge locataire ou une déduction du loyer.
           </Text>
 
           <PrimaryButton
-            accessibilityHint="Enregistre le taux de commission agence pour les futurs paiements"
-            label="Enregistrer le taux"
+            accessibilityHint="Enregistre le nom affiché de l’agence"
+            label="Enregistrer"
             loading={isSaving}
             onPress={() => {
               void handleSave();
@@ -161,6 +154,11 @@ export default function AgencySettingsScreen() {
           />
 
           <View style={styles.linkStack}>
+            <InfoRow
+              label="Langue"
+              onPress={() => router.push('/language' as never)}
+              value="Français, العربية, English"
+            />
             <InfoRow
               label="Notifications"
               onPress={() => router.push('/notifications')}

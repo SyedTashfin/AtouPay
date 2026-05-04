@@ -27,6 +27,10 @@ function mapProviderId(providerId: string): AuthProvider | null {
     return 'password';
   }
 
+  if (providerId === 'phone') {
+    return 'phone';
+  }
+
   return null;
 }
 

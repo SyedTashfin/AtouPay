@@ -71,6 +71,11 @@ export default function TenantProfileScreen() {
           <InfoRow label="Téléphone" value={accountPhone} />
           <InfoRow label="Compte connecté" value={accountEmail} />
           <InfoRow label="Connexion" value={providerLabel} />
+          <InfoRow
+            label="Langue"
+            onPress={() => router.push('/language' as never)}
+            value="Français, العربية, English"
+          />
           {canLinkPassword ? (
             <InfoRow
               label="Ajouter un mot de passe"
@@ -118,7 +123,7 @@ export default function TenantProfileScreen() {
 
 const styles = StyleSheet.create({
   safeArea: {
-    backgroundColor: colors.background,
+    backgroundColor: colors.role.tenant.background,
     flex: 1,
   },
   content: {

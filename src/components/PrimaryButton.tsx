@@ -1,6 +1,7 @@
 import { ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { useI18n } from '@/src/i18n/I18nProvider';
 import { colors } from '@/src/theme/colors';
 import { radius } from '@/src/theme/radius';
 import { shadows } from '@/src/theme/shadows';
@@ -30,12 +31,18 @@ export function PrimaryButton({
   icon,
   loading = false,
 }: PrimaryButtonProps) {
+  const { copy } = useI18n();
   const isDisabled = disabled || loading;
+  const localizedLabel = copy(label);
+  const localizedAccessibilityLabel = accessibilityLabel
+    ? copy(accessibilityLabel)
+    : localizedLabel;
+  const localizedAccessibilityHint = accessibilityHint ? copy(accessibilityHint) : undefined;
 
   return (
     <Pressable
-      accessibilityHint={accessibilityHint}
-      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityHint={localizedAccessibilityHint}
+      accessibilityLabel={localizedAccessibilityLabel}
       accessibilityRole="button"
       accessibilityState={{
         busy: loading,
@@ -55,7 +62,7 @@ export function PrimaryButton({
           icon
         )}
         <Text style={[styles.label, isDisabled ? disabledLabelStyles[variant] : labelStyles[variant]]}>
-          {loading ? 'Traitement...' : label}
+          {loading ? copy('Traitement...') : localizedLabel}
         </Text>
       </View>
     </Pressable>
@@ -65,7 +72,7 @@ export function PrimaryButton({
 const styles = StyleSheet.create({
   base: {
     alignItems: 'center',
-    borderRadius: radius.pill,
+    borderRadius: radius.lg,
     borderWidth: 1,
     justifyContent: 'center',
     minHeight: 54,
@@ -89,17 +96,17 @@ const styles = StyleSheet.create({
 
 const variantStyles = StyleSheet.create({
   primary: {
-    backgroundColor: colors.primaryDark,
-    borderColor: colors.primaryDark,
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
     ...shadows.button,
   },
   secondary: {
-    backgroundColor: colors.surfaceGlass,
-    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    borderColor: colors.primary,
   },
   ghost: {
-    backgroundColor: colors.surfaceMuted,
-    borderColor: colors.border,
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primarySoft,
   },
 });
 
@@ -108,7 +115,7 @@ const labelStyles = StyleSheet.create({
     color: colors.surface,
   },
   secondary: {
-    color: colors.text,
+    color: colors.primaryDark,
   },
   ghost: {
     color: colors.primaryDark,
@@ -117,8 +124,8 @@ const labelStyles = StyleSheet.create({
 
 const disabledVariantStyles = StyleSheet.create({
   primary: {
-    backgroundColor: colors.borderStrong,
-    borderColor: colors.borderStrong,
+    backgroundColor: colors.border,
+    borderColor: colors.border,
   },
   secondary: {
     backgroundColor: colors.surfaceMuted,

@@ -64,7 +64,7 @@ type SessionStatus =
 interface SessionContextValue {
   authEntryRoute:
     | '/account-suspended'
-    | '/auth/login'
+    | '/auth'
     | '/auth/verify-email'
     | '/owner-access'
     | '/terms';
@@ -76,7 +76,7 @@ interface SessionContextValue {
     | '/(agency)/home'
     | '/(owner)/home'
     | '/(tenant)/home'
-    | '/auth/login'
+    | '/auth'
     | '/account-suspended'
     | '/owner-access'
     | '/terms';
@@ -676,7 +676,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
         ? '/terms'
       : session
         ? getHomeRouteForRole(session.role)
-        : '/auth/login';
+        : '/auth';
   const authEntryRoute =
     sessionStatus === 'verification-required'
       ? verificationRoute

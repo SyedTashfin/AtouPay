@@ -1,4 +1,10 @@
+import { getActiveLanguage, getIntlLocale } from '@/src/i18n/translations';
+
 function capitalize(value: string) {
+  if (getActiveLanguage() === 'ar') {
+    return value;
+  }
+
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
@@ -23,7 +29,7 @@ export function formatMonthLabel(monthKey: string) {
   const date = new Date(`${monthKey}-01T00:00:00`);
 
   return capitalize(
-    new Intl.DateTimeFormat('fr-FR', {
+    new Intl.DateTimeFormat(getIntlLocale(), {
       month: 'long',
       year: 'numeric',
     }).format(date),
@@ -33,7 +39,7 @@ export function formatMonthLabel(monthKey: string) {
 export function formatDateLabel(dateValue: string) {
   const date = normalizeDateValue(dateValue);
 
-  return new Intl.DateTimeFormat('fr-FR', {
+  return new Intl.DateTimeFormat(getIntlLocale(), {
     day: 'numeric',
     month: 'long',
     year: 'numeric',
@@ -45,7 +51,7 @@ export function formatDateLabel(dateValue: string) {
 export function formatCompactDate(dateValue: string) {
   const date = normalizeDateValue(dateValue);
 
-  return new Intl.DateTimeFormat('fr-FR', {
+  return new Intl.DateTimeFormat(getIntlLocale(), {
     day: 'numeric',
     month: 'short',
   })
@@ -57,7 +63,7 @@ export function formatCompactDate(dateValue: string) {
 export function formatDateTimeLabel(dateValue: string) {
   const date = normalizeDateValue(dateValue);
 
-  return new Intl.DateTimeFormat('fr-FR', {
+  return new Intl.DateTimeFormat(getIntlLocale(), {
     day: 'numeric',
     month: 'long',
     year: 'numeric',

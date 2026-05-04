@@ -20,6 +20,7 @@ import { typography } from '@/src/theme/typography';
 import { formatCurrency } from '@/src/utils/currency';
 import { formatDateTimeLabel } from '@/src/utils/dates';
 import { formatPaymentStatusLabel } from '@/src/utils/paymentStatus';
+import { isReceiptSimulated } from '@/src/utils/receipts';
 
 function extractReceiptToken(value: string) {
   const trimmedValue = value.trim();
@@ -100,7 +101,7 @@ export default function ReceiptVerificationScreen() {
               title: 'Contrôler',
             },
             {
-              description: 'Le résultat reste honnête: paiement simulé si aucune vraie intégration n’existe.',
+              description: 'Le résultat indique clairement si le reçu concerne un paiement simulé.',
               iconName: 'info',
               title: 'Comprendre',
             },
@@ -161,7 +162,11 @@ export default function ReceiptVerificationScreen() {
         {isValid && receipt ? (
           <>
             <BannerNotice
-              description="La quittance existe dans ATouPay. Elle peut servir de justificatif selon les informations enregistrées dans le système. Le paiement reste simulé tant qu’aucune intégration de règlement réel n’est active."
+              description={
+                isReceiptSimulated(receipt)
+                  ? 'La quittance existe dans ATouPay. Elle peut servir de justificatif selon les informations enregistrées dans le système. Ce reçu indique un paiement simulé: aucun débit bancaire réel n’est confirmé.'
+                  : 'La quittance existe dans ATouPay. Elle peut servir de justificatif selon les informations enregistrées dans le système.'
+              }
               title="Reçu valide"
               tone="success"
             />
@@ -178,10 +183,12 @@ export default function ReceiptVerificationScreen() {
                 label="Logement"
                 value={[receipt.propertyLabel, receipt.unitLabel].filter(Boolean).join(' • ') || receipt.unitId}
               />
-              <InfoRow iconName="dollar-sign" label="Montant brut" value={formatCurrency(receipt.grossAmount)} />
-              <InfoRow iconName="percent" label="Commission agence" value={formatCurrency(receipt.agencyFeeAmount)} />
-              <InfoRow iconName="dollar-sign" label="Net propriétaire" value={formatCurrency(receipt.ownerNetAmount)} />
-              <InfoRow iconName="credit-card" label="Mode de paiement" value={receipt.paymentMethod ?? 'Simulation'} />
+              <InfoRow iconName="dollar-sign" label="Loyer payé" value={formatCurrency(receipt.grossAmount)} />
+              <InfoRow
+                iconName="credit-card"
+                label="Mode de paiement"
+                value={receipt.paymentMethod ?? (isReceiptSimulated(receipt) ? 'Simulation' : 'Non renseigné')}
+              />
               <InfoRow
                 iconName="check-circle"
                 label="Statut"

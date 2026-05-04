@@ -9,6 +9,7 @@ try {
     {
       authEmulator: app.config.firebaseAuthEmulatorHost ?? null,
       credentialStrategy: app.config.credentialStrategy,
+      emailEnabled: app.config.isEmailEnabled,
       firestoreEmulator: app.config.firestoreEmulatorHost ?? null,
       port: app.config.port,
       runtimeMode: app.config.runtimeMode,

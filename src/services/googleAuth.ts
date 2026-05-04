@@ -25,6 +25,45 @@ export type GoogleSignInResult = GoogleSignInSuccessResult | GoogleSignInFailure
 
 let isConfigured = false;
 
+function getGoogleNativeErrorMessage(code?: string, nativeMessage?: string) {
+  const normalizedCode = code?.trim();
+  const normalizedNativeMessage = nativeMessage?.trim();
+  const devSuffix =
+    appConfig.enableDevTools && (normalizedCode || normalizedNativeMessage)
+      ? ` (${[normalizedCode, normalizedNativeMessage].filter(Boolean).join(': ')})`
+      : '';
+
+  if (
+    Platform.OS === 'android' &&
+    (normalizedCode === '10' ||
+      normalizedCode === 'DEVELOPER_ERROR' ||
+      normalizedNativeMessage?.includes('DEVELOPER_ERROR'))
+  ) {
+    return (
+      'Configuration Google Android invalide: vérifiez que le package Android et ' +
+      'les empreintes SHA-1/SHA-256 de cette build sont bien enregistrés dans ' +
+      `Firebase / Google Cloud.${devSuffix}`
+    );
+  }
+
+  if (
+    Platform.OS === 'android' &&
+    (normalizedCode === '12500' ||
+      normalizedCode === 'SIGN_IN_FAILED' ||
+      normalizedNativeMessage?.includes('SIGN_IN_FAILED'))
+  ) {
+    return (
+      'Google a refusé cette build Android. Vérifiez le client OAuth Android, ' +
+      `le client OAuth Web et le fournisseur Google dans Firebase Auth.${devSuffix}`
+    );
+  }
+
+  return (
+    'La connexion Google a échoué. Vérifiez les identifiants OAuth et la configuration ' +
+    `de la build.${devSuffix}`
+  );
+}
+
 function getGoogleSignInSupportState() {
   if (Platform.OS === 'web') {
     return {
@@ -162,8 +201,7 @@ export async function signInWithGoogle(): Promise<GoogleSignInResult> {
 
       return {
         code: error.code,
-        message:
-          'La connexion Google a échoué. Vérifiez les identifiants OAuth et la configuration de la build.',
+        message: getGoogleNativeErrorMessage(error.code, error.message),
         status: 'error',
       };
     }

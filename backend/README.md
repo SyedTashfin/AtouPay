@@ -43,8 +43,8 @@ Payments remain simulated. This backend does not integrate any real payment prov
 
 The backend now exposes the minimum operational read models needed by the current app:
 
-- agency dashboard summary for active owners, tenants, properties, units, invites, support requests, payment status, and simulated commission totals
-- owner dashboard summary for properties, units, occupancy, tenant count, payment status, gross amount, agency fee, and owner net
+- agency dashboard summary for active owners, tenants, properties, units, invites, support requests, payment status, and owner billing status
+- owner dashboard summary for properties, units, occupancy, tenant count, payment status, rent collected, and owner account access status
 - in-app notification records in `notifications/{notificationId}`
 - audit records in `auditLogs/{auditLogId}`
 - agency-owned suspension/reactivation of owner and tenant user accounts
@@ -65,7 +65,8 @@ Current behavior:
 
 - `finalizeSimulatedPaymentProvider` only returns a simulated provider reference
 - no debit, mobile-money transfer, bank API call, webhook, or split disbursement is executed
-- receipt and commission data remain backend-owned ledger records
+- tenant rent receipts remain backend-owned records and do not include owner account access fees
+- owner account access billing is stored separately from rent payments
 
 Future real payment providers should plug in behind this boundary and must add verified credentials, webhook validation, idempotency, reconciliation, and failure-state handling before any real-money wording is used.
 
@@ -263,10 +264,10 @@ Generate a local owner-access invite for agency-gated owner testing:
 
 ```bash
 cd backend
-npm run owner-access:invite -- --agency agency-dev --email owner@example.com --rate 0.1
+npm run owner-access:invite -- --agency agency-dev --email owner@example.com
 ```
 
-That command creates or updates `agencies/{agencyId}` with a percentage commission rate, then writes a pending `ownerAccessInvites/{inviteId}` record and prints a usable code plus `ownerInvite` deep link.
+That command writes a pending `ownerAccessInvites/{inviteId}` record and prints a usable code plus `ownerInvite` deep link. Any legacy rate argument is deprecated and must not be used as a rent commission for new payments.
 
 Bootstrap the first real agency admin:
 
@@ -275,8 +276,7 @@ cd backend
 npm run agency-admin:bootstrap -- \
   --email admin@example.com \
   --agency-id agency-dev \
-  --agency-name "Agence ATouPay" \
-  --commission-rate 0.1
+  --agency-name "Agence ATouPay"
 ```
 
 What this does:
@@ -312,7 +312,7 @@ For production-like pilot deployments:
 1. keep Firebase Auth and Firestore in the existing Firebase project
 2. deploy this backend to a billed GCP project that already has Cloud Run enabled
 3. attach a dedicated Cloud Run service account
-4. grant that service account only the Firebase/Auth/Firestore permissions needed by this backend
+4. grant that service account Firestore access on the Firebase project, for example `roles/datastore.user` plus `roles/datastore.viewer`
 5. set only non-secret runtime env vars on Cloud Run
 
 The deployment script still supports the older env-secret fallback for local demos, but the preferred pilot path is attached service-account credentials. Do not inject `FIREBASE_PRIVATE_KEY` into Cloud Run unless you are deliberately using the fallback.
@@ -338,6 +338,7 @@ What the script does:
   - `FIREBASE_PROJECT_ID`
   - `APP_INVITE_BASE_URL`
   - `NODE_ENV=production`
+  - `EMAIL_FROM`, `EMAIL_REPLY_TO`, and `RESEND_API_KEY` when Resend invite email delivery is configured
 - attaches the service account when `--service-account` is provided
 - prints the deployed service URL
 
@@ -451,6 +452,46 @@ Access model:
 - agency admins can list and update requests tied to their agency
 - public assisted-recovery requests can be submitted without prior authentication
 
+## Invite email delivery
+
+Owner access invites and tenant unit invites can be emailed through Resend. This is optional; if Resend is not configured, invite creation still works and the app continues to show copyable codes/links.
+
+Required env vars to enable delivery:
+
+```dotenv
+RESEND_API_KEY=re_xxxxxxxxxxxxxxxxx
+EMAIL_FROM=ATouPay <invites@yourdomain.com>
+EMAIL_REPLY_TO=support@yourdomain.com
+```
+
+Operational requirements:
+
+- verify the sending domain or sender in Resend before using `EMAIL_FROM`
+- keep `RESEND_API_KEY` out of Git and local logs
+- set `RESEND_API_KEY` in `backend/.env` for local deployment scripts, or as a Cloud Run secret/env var for production-like deployments
+- emails are sent after the invite write succeeds; if Resend is unavailable, the invite remains valid and copyable in-app
+- password reset and e-mail verification remain Firebase Auth emails, not Resend emails
+
+Cloud Run secret setup:
+
+```bash
+gcloud secrets create atoupay-resend-api-key \
+  --project clickstream-bigdata \
+  --replication-policy=automatic
+
+printf '%s' 're_your_real_resend_key' | gcloud secrets versions add atoupay-resend-api-key \
+  --project clickstream-bigdata \
+  --data-file=-
+
+gcloud run services update atoupay-backend \
+  --project clickstream-bigdata \
+  --region europe-west1 \
+  --set-env-vars EMAIL_FROM='ATouPay <invites@yourdomain.com>',EMAIL_REPLY_TO='support@yourdomain.com' \
+  --set-secrets RESEND_API_KEY=atoupay-resend-api-key:latest
+```
+
+Use a verified sender/domain in `EMAIL_FROM`; do not use the placeholder values above for real delivery.
+
 ### Account recovery
 
 Supported now:
@@ -514,6 +555,7 @@ Recommended service-account capabilities:
 
 - verify Firebase ID tokens
 - read and write the Firestore collections used by this backend slice
+- read Firestore database metadata
 
 Avoid broad project-owner roles. Use least privilege.
 

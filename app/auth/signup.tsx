@@ -7,8 +7,8 @@ export default function SignupRedirectScreen() {
     <Redirect
       href={
         typeof invite === 'string' && invite.trim().length > 0
-          ? { pathname: '/auth/login', params: { invite, mode: 'signup' } }
-          : { pathname: '/auth/login', params: { mode: 'signup' } }
+          ? { pathname: '/auth/invitation', params: { invite } }
+          : { pathname: '/auth/tenant', params: { mode: 'signup' } }
       }
     />
   );

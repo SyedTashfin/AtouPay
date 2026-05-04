@@ -8,14 +8,11 @@ import * as Clipboard from 'expo-clipboard';
 import { BannerNotice } from '@/src/components/BannerNotice';
 import { InviteClaimCard } from '@/src/components/InviteClaimCard';
 import { ListEmptyState } from '@/src/components/ListEmptyState';
-import { PaymentCard } from '@/src/components/PaymentCard';
-import { PrimaryButton } from '@/src/components/PrimaryButton';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
-import { SectionTitle } from '@/src/components/SectionTitle';
 import { StatusPill } from '@/src/components/StatusPill';
-import { SummaryCard } from '@/src/components/SummaryCard';
 import { useAppContext } from '@/src/context/AppProvider';
 import { useSession } from '@/src/context/SessionProvider';
+import { useI18n } from '@/src/i18n/I18nProvider';
 import { redeemTenantInvite } from '@/src/services/rentalData';
 import { colors } from '@/src/theme/colors';
 import { radius } from '@/src/theme/radius';
@@ -27,10 +24,12 @@ import { formatCurrency } from '@/src/utils/currency';
 import { formatDateLabel, formatMonthLabel } from '@/src/utils/dates';
 
 function NotificationBell({ count }: { count: number }) {
+  const { copy } = useI18n();
+
   return (
     <Pressable
-      accessibilityHint="Ouvre la liste de vos paiements pour suivre les loyers à traiter"
-      accessibilityLabel="Notifications de paiement"
+      accessibilityHint={copy('Ouvre la liste de vos paiements pour suivre les loyers à traiter')}
+      accessibilityLabel={copy('Notifications de paiement')}
       accessibilityRole="button"
       onPress={() => router.push('/notifications')}
       style={({ pressed }) => [styles.bellButton, pressed && styles.pressed]}>
@@ -40,6 +39,61 @@ function NotificationBell({ count }: { count: number }) {
           <Text style={styles.badgeText}>{count}</Text>
         </View>
       ) : null}
+    </Pressable>
+  );
+}
+
+interface TenantActionProps {
+  description: string;
+  disabled?: boolean;
+  icon: keyof typeof Feather.glyphMap;
+  onPress: () => void;
+  tone?: 'default' | 'payment';
+  title: string;
+}
+
+function TenantAction({
+  description,
+  disabled = false,
+  icon,
+  onPress,
+  tone = 'default',
+  title,
+}: TenantActionProps) {
+  const { copy, isRtl } = useI18n();
+  const isPayment = tone === 'payment';
+  const localizedTitle = copy(title);
+  const localizedDescription = copy(description);
+
+  return (
+    <Pressable
+      accessibilityHint={localizedDescription}
+      accessibilityLabel={localizedTitle}
+      accessibilityRole="button"
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.actionTile,
+        isPayment && styles.paymentTile,
+        disabled && styles.disabledTile,
+        pressed && !disabled && styles.pressed,
+      ]}>
+      <View style={[styles.actionIcon, isPayment && styles.paymentIcon]}>
+        <Feather
+          color={disabled ? colors.textMuted : isPayment ? colors.surface : colors.primaryDark}
+          name={icon}
+          size={20}
+        />
+      </View>
+      <View style={styles.actionCopy}>
+        <Text style={[styles.actionTitle, isRtl && styles.rtlText, isPayment && styles.paymentTitle]}>
+          {localizedTitle}
+        </Text>
+        <Text style={[styles.actionDescription, isPayment && styles.paymentDescription]}>
+          {localizedDescription}
+        </Text>
+      </View>
+      <Feather color={isPayment ? colors.surface : colors.textMuted} name="chevron-right" size={18} />
     </Pressable>
   );
 }
@@ -67,6 +121,7 @@ export default function TenantHomeScreen() {
   const [inviteCode, setInviteCode] = useState(pendingInviteCode ?? '');
   const [inviteFeedback, setInviteFeedback] = useState<InviteFeedbackState | null>(null);
   const [isRedeemingInvite, setIsRedeemingInvite] = useState(false);
+  const { copy, t } = useI18n();
 
   useEffect(() => {
     setInviteCode(pendingInviteCode ?? '');
@@ -76,8 +131,8 @@ export default function TenantHomeScreen() {
   const propertyLabel = property
     ? [property.name, property.unitLabel].filter(Boolean).join(' • ')
     : undefined;
-  const recentPayments = tenantPayments.slice(0, 3);
   const canPay = currentTenantPayment?.status !== 'paid';
+  const hasReceiptHistory = tenantPayments.some((payment) => payment.status === 'paid' && payment.receiptId);
   const firstName = getFirstName(
     session?.profile?.displayName ?? tenantUser.fullName,
     tenantUser.fullName.split(' ')[0],
@@ -157,15 +212,15 @@ export default function TenantHomeScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <ScreenHeader
           rightAccessory={<NotificationBell count={tenantPayments.filter((payment) => payment.status !== 'paid').length} />}
-          subtitle="Votre loyer du mois reste au centre de l'écran"
-          title={`Bonjour, ${firstName}`}
+          subtitle={t('tenant.home.subtitle')}
+          title={`${copy('Bonjour')}, ${firstName}`}
         />
 
         {tenantAssignmentRequired ? (
           <View style={styles.assignmentSection}>
             <BannerNotice
-              description="Le propriétaire doit vous inviter sur une unité précise. Vous ne pouvez pas choisir librement un logement dans cette version."
-              title="Invitation requise"
+              description="Votre compte est ouvert. Pour voir le loyer et les quittances, ajoutez le code logement transmis par votre propriétaire."
+              title="Compte locataire prêt"
             />
 
             {inviteFeedback ? (
@@ -182,7 +237,7 @@ export default function TenantHomeScreen() {
               helperMessage={
                 pendingInviteCode
                   ? 'Un code détecté depuis un lien profond a été prérempli.'
-                  : 'Demandez un code ou un lien unique au propriétaire du logement.'
+                  : 'Si vous n’avez pas encore le code, vous pouvez revenir plus tard: votre compte reste accessible.'
               }
               loading={isRedeemingInvite}
               onChangeCode={(value) => {
@@ -203,13 +258,51 @@ export default function TenantHomeScreen() {
               }}
               onSubmit={() => void handleRedeemInvite()}
             />
+
+            <View style={styles.actions}>
+              <TenantAction
+                description="Disponible après rattachement du logement."
+                disabled
+                icon="credit-card"
+                onPress={() => undefined}
+                tone="payment"
+                title={t('tenant.actions.pay.title')}
+              />
+              <TenantAction
+                description="Vos quittances apparaîtront après le premier paiement simulé."
+                disabled
+                icon="file-text"
+                onPress={() => undefined}
+                title={t('tenant.actions.receipt.title')}
+              />
+              <TenantAction
+                description={t('tenant.actions.account.description')}
+                icon="user"
+                onPress={() => router.push('/(tenant)/profile')}
+                title={t('tenant.actions.account.title')}
+              />
+            </View>
+
+            <View style={styles.secondaryLinks}>
+              <Pressable
+                accessibilityLabel="Aide locataire"
+                accessibilityRole="button"
+                onPress={() => router.push('/support')}
+                style={({ pressed }) => [styles.secondaryLink, pressed && styles.pressed]}>
+                <Text style={styles.secondaryLinkText}>{t('common.needHelp')}</Text>
+              </Pressable>
+              <Text style={styles.secondaryDot}>•</Text>
+              <Text style={styles.secondaryText}>
+                {t('payments.simulatedShort')}
+              </Text>
+            </View>
           </View>
         ) : currentTenantPayment ? (
           <>
             <View style={styles.mainCard}>
               <View style={styles.mainCardTop}>
                 <View style={styles.mainCardCopy}>
-                  <Text style={styles.cardEyebrow}>Loyer du mois</Text>
+                  <Text style={styles.cardEyebrow}>{copy('Loyer du mois')}</Text>
                   <Text style={styles.cardMonth}>{formatMonthLabel(currentTenantPayment.monthKey)}</Text>
                   <Text style={styles.cardAmount}>{formatCurrency(currentTenantPayment.amount)}</Text>
                 </View>
@@ -217,61 +310,62 @@ export default function TenantHomeScreen() {
               </View>
 
               <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Échéance</Text>
+                <Text style={styles.detailLabel}>{copy('Échéance')}</Text>
                 <Text style={styles.detailValue}>{formatDateLabel(currentTenantPayment.dueDate)}</Text>
               </View>
               <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Propriété</Text>
-              <Text style={styles.detailValue}>{propertyLabel ?? 'Votre logement'}</Text>
+                <Text style={styles.detailLabel}>{copy('Propriété')}</Text>
+                <Text style={styles.detailValue}>{propertyLabel ?? copy('Votre logement')}</Text>
+              </View>
             </View>
 
-              <PrimaryButton
-                accessibilityHint="Ouvre l'écran de paiement du loyer courant"
-                disabled={!canPay}
-                label={canPay ? 'Payer maintenant' : 'Paiement enregistré'}
-                onPress={() =>
-                  router.push(`/(tenant)/pay-rent?paymentId=${currentTenantPayment.id}`)
+            <View style={styles.actions}>
+              <TenantAction
+                description={
+                  canPay
+                    ? t('tenant.actions.pay.description')
+                    : t('tenant.actions.pay.paidDescription')
                 }
+                disabled={!canPay}
+                icon="credit-card"
+                onPress={() => {
+                  router.push(`/(tenant)/pay-rent?paymentId=${currentTenantPayment.id}`);
+                }}
+                tone="payment"
+                title={t('tenant.actions.pay.title')}
+              />
+              <TenantAction
+                description={
+                  hasReceiptHistory
+                    ? t('tenant.actions.receipt.description')
+                    : t('tenant.actions.receipt.historyDescription')
+                }
+                icon="file-text"
+                onPress={() => {
+                  router.push('/(tenant)/receipts' as never);
+                }}
+                title={t('tenant.actions.receipt.title')}
+              />
+              <TenantAction
+                description={t('tenant.actions.account.description')}
+                icon="user"
+                onPress={() => router.push('/(tenant)/profile')}
+                title={t('tenant.actions.account.title')}
               />
             </View>
 
-            {property ? (
-              <SummaryCard
-                accent="neutral"
-                helper={`Propriétaire: ${ownerUser.fullName}`}
-                subtitle={property.address}
-                title="Votre logement"
-                value={propertyLabel ?? property.name}
-              />
-            ) : null}
-
-            <View style={styles.section}>
-              <SectionTitle
-                actionLabel="Voir tout"
-                onActionPress={() => router.push('/(tenant)/payments')}
-                subtitle="Vos derniers loyers et leur statut"
-                title="Paiements récents"
-              />
-
-              {recentPayments.length > 0 ? (
-                recentPayments.map((payment) => (
-                  <PaymentCard
-                    key={payment.id}
-                    onPress={
-                      payment.status !== 'paid'
-                        ? () => router.push(`/(tenant)/pay-rent?paymentId=${payment.id}`)
-                        : undefined
-                    }
-                    payment={payment}
-                    propertyName={propertyLabel ?? 'Logement'}
-                  />
-                ))
-              ) : (
-                <ListEmptyState
-                  description="Aucun historique n’est encore disponible pour cette unité."
-                  title="Paiements à venir"
-                />
-              )}
+            <View style={styles.secondaryLinks}>
+              <Pressable
+                accessibilityLabel="Aide locataire"
+                accessibilityRole="button"
+                onPress={() => router.push('/support')}
+                style={({ pressed }) => [styles.secondaryLink, pressed && styles.pressed]}>
+                <Text style={styles.secondaryLinkText}>{t('common.needHelp')}</Text>
+              </Pressable>
+              <Text style={styles.secondaryDot}>•</Text>
+              <Text style={styles.secondaryText}>
+                {t('payments.simulatedShort')}
+              </Text>
             </View>
           </>
         ) : (
@@ -287,7 +381,7 @@ export default function TenantHomeScreen() {
 
 const styles = StyleSheet.create({
   safeArea: {
-    backgroundColor: colors.background,
+    backgroundColor: colors.role.tenant.background,
     flex: 1,
   },
   content: {
@@ -326,8 +420,8 @@ const styles = StyleSheet.create({
     ...typography.caption,
   },
   mainCard: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
+    backgroundColor: colors.role.tenant.soft,
+    borderColor: colors.role.tenant.border,
     borderRadius: radius.lg,
     borderWidth: 1,
     gap: spacing.sm,
@@ -354,7 +448,7 @@ const styles = StyleSheet.create({
     ...typography.subheading,
   },
   cardAmount: {
-    color: colors.primaryDark,
+    color: colors.role.tenant.active,
     marginTop: spacing.xs,
     ...typography.display,
   },
@@ -375,10 +469,84 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     ...typography.bodyStrong,
   },
-  section: {
+  actions: {
     gap: spacing.sm,
+  },
+  actionTile: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.role.tenant.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    minHeight: 82,
+    padding: spacing.sm,
+  },
+  paymentTile: {
+    backgroundColor: colors.primaryDark,
+    borderColor: colors.primaryDark,
+  },
+  disabledTile: {
+    opacity: 0.58,
+  },
+  actionIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.role.tenant.soft,
+    borderRadius: radius.pill,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  paymentIcon: {
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+  },
+  actionCopy: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+  },
+  actionTitle: {
+    color: colors.text,
+    ...typography.bodyStrong,
+  },
+  paymentTitle: {
+    color: colors.surface,
+  },
+  actionDescription: {
+    color: colors.textMuted,
+    ...typography.caption,
+  },
+  paymentDescription: {
+    color: colors.primarySoft,
+  },
+  secondaryLinks: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    justifyContent: 'center',
+    paddingTop: spacing.xs,
+  },
+  secondaryLink: {
+    padding: spacing.xs,
+  },
+  secondaryLinkText: {
+    color: colors.role.tenant.active,
+    ...typography.bodyStrong,
+  },
+  secondaryDot: {
+    color: colors.textMuted,
+    ...typography.body,
+  },
+  secondaryText: {
+    color: colors.textMuted,
+    ...typography.caption,
   },
   pressed: {
     opacity: 0.85,
+  },
+  rtlText: {
+    writingDirection: 'rtl',
   },
 });

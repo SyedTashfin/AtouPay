@@ -1,12 +1,17 @@
 import * as Crypto from 'expo-crypto';
 import {
   collection,
+  deleteDoc,
   doc,
   DocumentData,
   getDoc,
+  getDocs,
+  query,
   runTransaction,
   serverTimestamp,
   setDoc,
+  updateDoc,
+  where,
 } from 'firebase/firestore';
 
 import { isBackendEnabled } from '@/src/config/env';
@@ -16,8 +21,12 @@ import {
   createOwnerPropertyViaBackend,
   createOwnerUnitViaBackend,
   createTenantInviteViaBackend,
+  deleteOwnerPropertyViaBackend,
+  deleteOwnerUnitViaBackend,
   mapBackendErrorToMessage,
   redeemTenantInviteViaBackend,
+  updateOwnerPropertyViaBackend,
+  updateOwnerUnitViaBackend,
 } from '@/src/services/backendApi';
 import { buildInviteLink, generateInviteCode, hashInviteCode, normalizeInviteCode } from '@/src/services/inviteCode';
 import {
@@ -144,7 +153,10 @@ function currentMonthDueDate() {
   return `${currentMonthKey()}-05`;
 }
 
-function clampCommissionRate(value: number) {
+// Historical Firestore records can still carry commission values. New rent
+// records are created through calculateZeroRentLedger and must keep these
+// legacy fields at zero.
+function clampLegacyCommissionRate(value: number) {
   if (!Number.isFinite(value)) {
     return 0;
   }
@@ -152,14 +164,15 @@ function clampCommissionRate(value: number) {
   return Math.max(0, Math.min(value, 1));
 }
 
-function calculateCommissionLedger(grossAmount: number, commissionRate: number) {
-  const normalizedRate = clampCommissionRate(commissionRate);
-  const agencyFeeAmount = Math.round(grossAmount * normalizedRate);
-
+function calculateZeroRentLedger(grossAmount: number) {
   return {
-    agencyFeeAmount,
-    commissionRate: normalizedRate,
-    ownerNetAmount: Math.max(0, grossAmount - agencyFeeAmount),
+    agencyFeeAmount: 0,
+    commissionRate: 0,
+    ownerNetAmount: grossAmount,
+    ownerReceivableAmount: grossAmount,
+    platformRentFeeAmount: 0,
+    rentAmount: grossAmount,
+    tenantFeeAmount: 0,
   };
 }
 
@@ -211,6 +224,7 @@ export function mapUnitToUiProperty(
     id: unit.id,
     monthlyRent: unit.rentAmount,
     name: property?.label ?? 'Bien ATouPay',
+    notes: unit.notes ?? null,
     occupancyStatus: unit.status,
     ownerId: unit.ownerId,
     tenantIds: unit.tenantId ? [unit.tenantId] : [],
@@ -230,7 +244,9 @@ export function mapRentPaymentToUiPayment(record: RentPaymentRecord): PaymentRec
     monthKey: record.monthKey,
     ownerId: record.ownerId,
     ownerNetAmount: record.ownerNetAmount,
+    ownerReceivableAmount: record.ownerReceivableAmount ?? record.ownerNetAmount,
     paidAt: record.paidAt ?? undefined,
+    platformRentFeeAmount: record.platformRentFeeAmount ?? 0,
     propertyId: record.unitId,
     provider: record.paymentMethod ?? undefined,
     receiptId: record.receiptId ?? undefined,
@@ -239,7 +255,9 @@ export function mapRentPaymentToUiPayment(record: RentPaymentRecord): PaymentRec
         ? record.providerReference
         : generatePaymentReference('ATP'),
     status: record.paymentStatus,
+    rentAmount: record.rentAmount ?? record.grossAmount,
     tenantId: record.tenantId,
+    tenantFeeAmount: record.tenantFeeAmount ?? 0,
     unitId: record.unitId,
   };
 }
@@ -276,6 +294,7 @@ export function normalizeUnitRecord(id: string, data: DocumentData): UnitRecord 
     currency: typeof data.currency === 'string' ? data.currency : 'MRU',
     id,
     label: typeof data.label === 'string' ? data.label : 'Unité',
+    notes: normalizeNullableString(data.notes),
     ownerId: typeof data.ownerId === 'string' ? data.ownerId : '',
     propertyId: typeof data.propertyId === 'string' ? data.propertyId : '',
     rentAmount: typeof data.rentAmount === 'number' ? data.rentAmount : 0,
@@ -307,15 +326,15 @@ export function normalizeTenantRecord(id: string, data: DocumentData): TenantRec
 export function normalizeRentPaymentRecord(id: string, data: DocumentData): RentPaymentRecord {
   const grossAmount = typeof data.grossAmount === 'number' ? data.grossAmount : 0;
   const commissionRate =
-    typeof data.commissionRate === 'number' ? clampCommissionRate(data.commissionRate) : 0;
+    typeof data.commissionRate === 'number' ? clampLegacyCommissionRate(data.commissionRate) : 0;
   const agencyFeeAmount =
     typeof data.agencyFeeAmount === 'number'
       ? data.agencyFeeAmount
-      : calculateCommissionLedger(grossAmount, commissionRate).agencyFeeAmount;
+      : 0;
   const ownerNetAmount =
     typeof data.ownerNetAmount === 'number'
       ? data.ownerNetAmount
-      : calculateCommissionLedger(grossAmount, commissionRate).ownerNetAmount;
+      : grossAmount;
 
   return {
     agencyFeeAmount,
@@ -327,6 +346,8 @@ export function normalizeRentPaymentRecord(id: string, data: DocumentData): Rent
     id,
     monthKey: typeof data.monthKey === 'string' ? data.monthKey : currentMonthKey(),
     ownerId: typeof data.ownerId === 'string' ? data.ownerId : '',
+    ownerReceivableAmount:
+      typeof data.ownerReceivableAmount === 'number' ? data.ownerReceivableAmount : ownerNetAmount,
     ownerNetAmount,
     paidAt: normalizeNullableString(data.paidAt),
     paymentMethod:
@@ -344,10 +365,14 @@ export function normalizeRentPaymentRecord(id: string, data: DocumentData): Rent
       data.paymentStatus === 'disputed'
         ? data.paymentStatus
         : 'pending',
+    platformRentFeeAmount:
+      typeof data.platformRentFeeAmount === 'number' ? data.platformRentFeeAmount : 0,
     propertyId: typeof data.propertyId === 'string' ? data.propertyId : '',
     providerReference: normalizeNullableString(data.providerReference),
     receiptId: normalizeNullableString(data.receiptId),
+    rentAmount: typeof data.rentAmount === 'number' ? data.rentAmount : grossAmount,
     tenantId: typeof data.tenantId === 'string' ? data.tenantId : '',
+    tenantFeeAmount: typeof data.tenantFeeAmount === 'number' ? data.tenantFeeAmount : 0,
     unitId: typeof data.unitId === 'string' ? data.unitId : '',
     updatedAt: normalizeDateValue(data.updatedAt),
   };
@@ -465,6 +490,7 @@ export async function createOwnerProperty(input: {
 export async function createOwnerUnit(input: {
   currency: string;
   label: string;
+  notes?: string | null;
   ownerId: string;
   propertyId: string;
   rentAmount: number;
@@ -474,6 +500,7 @@ export async function createOwnerUnit(input: {
       const result = await createOwnerUnitViaBackend({
         currency: input.currency,
         label: input.label,
+        notes: input.notes,
         propertyId: input.propertyId,
         rentAmount: input.rentAmount,
       });
@@ -521,6 +548,7 @@ export async function createOwnerUnit(input: {
       createdAt: serverTimestamp(),
       currency: input.currency,
       label: input.label.trim(),
+      notes: input.notes?.trim() ? input.notes.trim() : null,
       ownerId: input.ownerId,
       propertyId: input.propertyId,
       rentAmount: input.rentAmount,
@@ -543,6 +571,317 @@ export async function createOwnerUnit(input: {
           : "L’unité n'a pas pu être créée.",
       ok: false,
       title: 'Création impossible',
+    };
+  }
+}
+
+export async function updateOwnerProperty(input: {
+  address: string;
+  label: string;
+  ownerId: string;
+  propertyId: string;
+}): Promise<MutationResult> {
+  if (isBackendEnabled) {
+    try {
+      await updateOwnerPropertyViaBackend({
+        address: input.address,
+        label: input.label,
+        propertyId: input.propertyId,
+      });
+
+      return {
+        message: 'Le bien a été mis à jour.',
+        ok: true,
+        title: 'Bien modifié',
+      };
+    } catch (error) {
+      return {
+        message: mapBackendErrorToMessage(error, "Le bien n'a pas pu être modifié."),
+        ok: false,
+        title: 'Modification impossible',
+      };
+    }
+  }
+
+  const db = requireFirestore();
+  const propertyRef = doc(db, 'properties', input.propertyId);
+
+  try {
+    const propertySnapshot = await getDoc(propertyRef);
+
+    if (!propertySnapshot.exists()) {
+      return {
+        message: 'Le bien est introuvable.',
+        ok: false,
+        title: 'Bien indisponible',
+      };
+    }
+
+    if (propertySnapshot.data().ownerId !== input.ownerId) {
+      return {
+        message: 'Vous ne pouvez modifier que vos propres biens.',
+        ok: false,
+        title: 'Accès refusé',
+      };
+    }
+
+    await updateDoc(propertyRef, {
+      address: input.address.trim(),
+      label: input.label.trim(),
+      updatedAt: serverTimestamp(),
+    });
+
+    return {
+      message: 'Le bien a été mis à jour.',
+      ok: true,
+      title: 'Bien modifié',
+    };
+  } catch (error) {
+    return {
+      message:
+        error instanceof Error
+          ? error.message
+          : "Le bien n'a pas pu être modifié.",
+      ok: false,
+      title: 'Modification impossible',
+    };
+  }
+}
+
+export async function updateOwnerUnit(input: {
+  label: string;
+  notes?: string | null;
+  ownerId: string;
+  rentAmount: number;
+  unitId: string;
+}): Promise<MutationResult> {
+  if (isBackendEnabled) {
+    try {
+      await updateOwnerUnitViaBackend({
+        label: input.label,
+        notes: input.notes,
+        rentAmount: input.rentAmount,
+        unitId: input.unitId,
+      });
+
+      return {
+        message: 'L’unité a été mise à jour.',
+        ok: true,
+        title: 'Unité modifiée',
+      };
+    } catch (error) {
+      return {
+        message: mapBackendErrorToMessage(error, "L’unité n'a pas pu être modifiée."),
+        ok: false,
+        title: 'Modification impossible',
+      };
+    }
+  }
+
+  const db = requireFirestore();
+  const unitRef = doc(db, 'units', input.unitId);
+
+  try {
+    const unitSnapshot = await getDoc(unitRef);
+
+    if (!unitSnapshot.exists()) {
+      return {
+        message: 'L’unité est introuvable.',
+        ok: false,
+        title: 'Unité indisponible',
+      };
+    }
+
+    const unitData = unitSnapshot.data();
+
+    if (unitData.ownerId !== input.ownerId) {
+      return {
+        message: 'Vous ne pouvez modifier que vos propres unités.',
+        ok: false,
+        title: 'Accès refusé',
+      };
+    }
+
+    await updateDoc(unitRef, {
+      label: input.label.trim(),
+      notes: input.notes?.trim() ? input.notes.trim() : null,
+      rentAmount: input.rentAmount,
+      updatedAt: serverTimestamp(),
+    });
+
+    return {
+      message: 'L’unité a été mise à jour.',
+      ok: true,
+      title: 'Unité modifiée',
+    };
+  } catch (error) {
+    return {
+      message:
+        error instanceof Error
+          ? error.message
+          : "L’unité n'a pas pu être modifiée.",
+      ok: false,
+      title: 'Modification impossible',
+    };
+  }
+}
+
+export async function deleteOwnerUnit(input: {
+  ownerId: string;
+  unitId: string;
+}): Promise<MutationResult> {
+  if (isBackendEnabled) {
+    try {
+      await deleteOwnerUnitViaBackend(input.unitId);
+
+      return {
+        message: 'L’unité vacante a été supprimée.',
+        ok: true,
+        title: 'Unité supprimée',
+      };
+    } catch (error) {
+      return {
+        message: mapBackendErrorToMessage(error, "L’unité n'a pas pu être supprimée."),
+        ok: false,
+        title: 'Suppression impossible',
+      };
+    }
+  }
+
+  const db = requireFirestore();
+  const unitRef = doc(db, 'units', input.unitId);
+
+  try {
+    const unitSnapshot = await getDoc(unitRef);
+
+    if (!unitSnapshot.exists()) {
+      return {
+        message: 'L’unité est introuvable.',
+        ok: false,
+        title: 'Unité indisponible',
+      };
+    }
+
+    const unitData = unitSnapshot.data();
+
+    if (unitData.ownerId !== input.ownerId) {
+      return {
+        message: 'Vous ne pouvez supprimer que vos propres unités.',
+        ok: false,
+        title: 'Accès refusé',
+      };
+    }
+
+    if (unitData.status !== 'vacant' || unitData.tenantId || unitData.activeInviteId) {
+      return {
+        message: 'Seule une unité vacante, sans invitation active ni locataire, peut être supprimée.',
+        ok: false,
+        title: 'Suppression impossible',
+      };
+    }
+
+    const paymentsSnapshot = await getDocs(
+      query(collection(db, 'rentPayments'), where('unitId', '==', input.unitId)),
+    );
+
+    if (!paymentsSnapshot.empty) {
+      return {
+        message: 'Cette unité possède déjà un historique de paiement et ne peut pas être supprimée.',
+        ok: false,
+        title: 'Suppression impossible',
+      };
+    }
+
+    await deleteDoc(unitRef);
+
+    return {
+      message: 'L’unité vacante a été supprimée.',
+      ok: true,
+      title: 'Unité supprimée',
+    };
+  } catch (error) {
+    return {
+      message:
+        error instanceof Error
+          ? error.message
+          : "L’unité n'a pas pu être supprimée.",
+      ok: false,
+      title: 'Suppression impossible',
+    };
+  }
+}
+
+export async function deleteOwnerProperty(input: {
+  ownerId: string;
+  propertyId: string;
+}): Promise<MutationResult> {
+  if (isBackendEnabled) {
+    try {
+      await deleteOwnerPropertyViaBackend(input.propertyId);
+
+      return {
+        message: 'Le bien vide a été supprimé.',
+        ok: true,
+        title: 'Bien supprimé',
+      };
+    } catch (error) {
+      return {
+        message: mapBackendErrorToMessage(error, "Le bien n'a pas pu être supprimé."),
+        ok: false,
+        title: 'Suppression impossible',
+      };
+    }
+  }
+
+  const db = requireFirestore();
+  const propertyRef = doc(db, 'properties', input.propertyId);
+
+  try {
+    const propertySnapshot = await getDoc(propertyRef);
+
+    if (!propertySnapshot.exists()) {
+      return {
+        message: 'Le bien est introuvable.',
+        ok: false,
+        title: 'Bien indisponible',
+      };
+    }
+
+    if (propertySnapshot.data().ownerId !== input.ownerId) {
+      return {
+        message: 'Vous ne pouvez supprimer que vos propres biens.',
+        ok: false,
+        title: 'Accès refusé',
+      };
+    }
+
+    const unitsSnapshot = await getDocs(
+      query(collection(db, 'units'), where('propertyId', '==', input.propertyId)),
+    );
+
+    if (!unitsSnapshot.empty) {
+      return {
+        message: 'Supprimez d’abord les unités de ce bien avant de supprimer le bien.',
+        ok: false,
+        title: 'Bien non vide',
+      };
+    }
+
+    await deleteDoc(propertyRef);
+
+    return {
+      message: 'Le bien vide a été supprimé.',
+      ok: true,
+      title: 'Bien supprimé',
+    };
+  } catch (error) {
+    return {
+      message:
+        error instanceof Error
+          ? error.message
+          : "Le bien n'a pas pu être supprimé.",
+      ok: false,
+      title: 'Suppression impossible',
     };
   }
 }
@@ -803,21 +1142,7 @@ export async function redeemTenantInvite(input: {
         ownerUserData && typeof ownerUserData.agencyId === 'string'
           ? ownerUserData.agencyId
           : null;
-      let commissionRate = 0;
-
-      if (agencyId) {
-        const agencyRef = doc(db, 'agencies', agencyId);
-        const agencySnapshot = await transaction.get(agencyRef);
-        const agencyData = agencySnapshot.exists()
-          ? (agencySnapshot.data() as Partial<AgencyRecord>)
-          : null;
-        commissionRate =
-          agencyData && typeof agencyData.commissionRate === 'number'
-            ? clampCommissionRate(agencyData.commissionRate)
-            : 0;
-      }
-
-      const commissionLedger = calculateCommissionLedger(unitData.rentAmount, commissionRate);
+      const rentLedger = calculateZeroRentLedger(unitData.rentAmount);
 
       claimedPropertyId = inviteData.propertyId;
       claimedUnitId = inviteData.unitId;
@@ -852,22 +1177,26 @@ export async function redeemTenantInvite(input: {
 
       if (!paymentSnapshot.exists()) {
         transaction.set(paymentRef, {
-          agencyFeeAmount: commissionLedger.agencyFeeAmount,
+          agencyFeeAmount: rentLedger.agencyFeeAmount,
           agencyId,
-          commissionRate: commissionLedger.commissionRate,
+          commissionRate: rentLedger.commissionRate,
           createdAt: serverTimestamp(),
           dueDate: currentMonthDueDate(),
-          grossAmount: unitData.rentAmount,
+          grossAmount: rentLedger.rentAmount,
           monthKey: currentMonthKey(),
           ownerId: inviteData.ownerId,
-          ownerNetAmount: commissionLedger.ownerNetAmount,
+          ownerNetAmount: rentLedger.ownerNetAmount,
+          ownerReceivableAmount: rentLedger.ownerReceivableAmount,
           paidAt: null,
           paymentMethod: null,
           paymentStatus: 'pending',
+          platformRentFeeAmount: rentLedger.platformRentFeeAmount,
           propertyId: inviteData.propertyId,
           providerReference: null,
           receiptId: null,
+          rentAmount: rentLedger.rentAmount,
           tenantId: input.userId,
+          tenantFeeAmount: rentLedger.tenantFeeAmount,
           unitId: inviteData.unitId,
           updatedAt: serverTimestamp(),
         });

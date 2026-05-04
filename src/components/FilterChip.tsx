@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text } from 'react-native';
 
+import { useI18n } from '@/src/i18n/I18nProvider';
 import { colors } from '@/src/theme/colors';
 import { radius } from '@/src/theme/radius';
 import { spacing } from '@/src/theme/spacing';
@@ -12,9 +13,12 @@ interface FilterChipProps {
 }
 
 export function FilterChip({ label, selected, onPress }: FilterChipProps) {
+  const { copy } = useI18n();
+  const localizedLabel = copy(label);
+
   return (
     <Pressable
-      accessibilityLabel={`Filtre ${label}`}
+      accessibilityLabel={`${copy('Filtre')} ${localizedLabel}`}
       accessibilityRole="button"
       accessibilityState={{ selected }}
       onPress={onPress}
@@ -24,7 +28,7 @@ export function FilterChip({ label, selected, onPress }: FilterChipProps) {
         pressed && styles.pressed,
       ]}>
       <Text style={[styles.text, selected ? styles.selectedText : styles.unselectedText]}>
-        {label}
+        {localizedLabel}
       </Text>
     </Pressable>
   );

@@ -7,11 +7,15 @@ import { ListEmptyState } from '@/src/components/ListEmptyState';
 import { PrimaryButton } from '@/src/components/PrimaryButton';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
 import { StatusPill } from '@/src/components/StatusPill';
-import { AgencyUserSummary } from '@/src/types';
+import { AgencyOwnerBillingSummary, AgencyUserSummary, OwnerBillingStatus } from '@/src/types';
 import {
+  listAgencyOwnerBillingViaBackend,
   listAgencyOwnersViaBackend,
   listAgencyUsersViaBackend,
+  markAgencyOwnerBillingPaidViaBackend,
   mapBackendErrorToMessage,
+  reactivateAgencyOwnerBillingViaBackend,
+  suspendAgencyOwnerBillingViaBackend,
   updateAgencyUserStatusViaBackend,
 } from '@/src/services/backendApi';
 import { colors } from '@/src/theme/colors';
@@ -36,12 +40,48 @@ function roleLabel(role: AgencyUserSummary['role']) {
   return 'Agence';
 }
 
+function billingStatusLabel(status: OwnerBillingStatus) {
+  if (status === 'active') {
+    return 'Compte actif';
+  }
+
+  if (status === 'grace_period') {
+    return 'Délai de grâce';
+  }
+
+  if (status === 'past_due') {
+    return 'Paiement requis';
+  }
+
+  return 'Compte suspendu';
+}
+
+function billingStatusTone(status: OwnerBillingStatus) {
+  if (status === 'active') {
+    return 'paid';
+  }
+
+  if (status === 'suspended') {
+    return 'late';
+  }
+
+  return 'pending';
+}
+
 function OwnerRow({
+  billing,
   isUpdating,
+  onMarkPaid,
+  onReactivateBilling,
+  onSuspendBilling,
   onToggleStatus,
   user,
 }: {
+  billing?: AgencyOwnerBillingSummary;
   isUpdating: boolean;
+  onMarkPaid: (user: AgencyUserSummary) => void;
+  onReactivateBilling: (user: AgencyUserSummary) => void;
+  onSuspendBilling: (user: AgencyUserSummary) => void;
   onToggleStatus: (user: AgencyUserSummary) => void;
   user: AgencyUserSummary;
 }) {
@@ -63,8 +103,38 @@ function OwnerRow({
       <Text style={styles.meta}>
         {`Créé le ${formatDateLabel(user.createdAt)}`}
       </Text>
+      {user.role === 'owner' && billing ? (
+        <View style={styles.billingBox}>
+          <View style={styles.rowTop}>
+            <Text style={styles.meta}>Facturation propriétaire</Text>
+            <StatusPill status={billingStatusTone(billing.account.status)} type="payment" />
+          </View>
+          <Text style={styles.meta}>{billingStatusLabel(billing.account.status)}</Text>
+          <Text style={styles.meta}>{`Actif jusqu’au ${formatDateLabel(billing.activeUntil)}`}</Text>
+          <Text style={styles.meta}>{`Prochain paiement ${formatDateLabel(billing.nextPaymentDueAt)}`}</Text>
+          <Text style={styles.meta}>
+            {`Dernière facture Frais d’accès propriétaire ATouPay: ${billing.latestInvoice?.status ?? 'aucune'}`}
+          </Text>
+          <PrimaryButton
+            label="Marquer les frais payés"
+            loading={isUpdating}
+            onPress={() => onMarkPaid(user)}
+            variant="secondary"
+          />
+          <PrimaryButton
+            label={billing.account.status === 'suspended' ? 'Réactiver la facturation' : 'Suspendre la facturation'}
+            loading={isUpdating}
+            onPress={() =>
+              billing.account.status === 'suspended'
+                ? onReactivateBilling(user)
+                : onSuspendBilling(user)
+            }
+            variant={billing.account.status === 'suspended' ? 'secondary' : 'ghost'}
+          />
+        </View>
+      ) : null}
 
-      {user.status === 'active' || user.status === 'suspended' ? (
+      {user.role !== 'owner' && (user.status === 'active' || user.status === 'suspended') ? (
         <PrimaryButton
           label={user.status === 'suspended' ? 'Réactiver le compte' : 'Suspendre le compte'}
           loading={isUpdating}
@@ -78,6 +148,7 @@ function OwnerRow({
 
 export default function AgencyOwnersScreen() {
   const [users, setUsers] = useState<AgencyUserSummary[]>([]);
+  const [billingItems, setBillingItems] = useState<AgencyOwnerBillingSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [updatingUid, setUpdatingUid] = useState<string | null>(null);
@@ -96,9 +167,11 @@ export default function AgencyOwnersScreen() {
             tenantId: null,
           }));
         });
+        const nextBillingItems = await listAgencyOwnerBillingViaBackend().catch(() => []);
 
         if (isMounted) {
           setUsers(nextUsers);
+          setBillingItems(nextBillingItems);
         }
       } catch (loadError) {
         if (!isMounted) {
@@ -153,6 +226,95 @@ export default function AgencyOwnersScreen() {
     }
   };
 
+  const replaceBillingSummary = (
+    ownerId: string,
+    summary: Awaited<ReturnType<typeof markAgencyOwnerBillingPaidViaBackend>>,
+  ) => {
+    setBillingItems((currentItems) =>
+      currentItems.map((item) =>
+        item.owner.ownerId === ownerId
+          ? {
+              ...item,
+              account: summary.account,
+              activeUntil: summary.activeUntil,
+              canCreateInvites: summary.canCreateInvites,
+              canManageProperties: summary.canManageProperties,
+              latestInvoice: summary.latestInvoice,
+              nextPaymentDueAt: summary.nextPaymentDueAt,
+              statusMessage: summary.statusMessage,
+            }
+          : item,
+      ),
+    );
+  };
+
+  const handleMarkBillingPaid = async (user: AgencyUserSummary) => {
+    if (!user.ownerId) {
+      return;
+    }
+
+    setUpdatingUid(user.uid);
+    setFeedback(null);
+    setError(null);
+
+    try {
+      const summary = await markAgencyOwnerBillingPaidViaBackend({
+        note: 'Paiement manuel des frais d’accès propriétaire enregistré par l’agence.',
+        ownerId: user.ownerId,
+        provider: 'manual',
+      });
+      replaceBillingSummary(user.ownerId, summary);
+      setFeedback('Les frais d’accès propriétaire ont été marqués comme payés.');
+    } catch (markError) {
+      setError(mapBackendErrorToMessage(markError, 'Le paiement manuel a échoué.'));
+    } finally {
+      setUpdatingUid(null);
+    }
+  };
+
+  const handleSuspendBilling = async (user: AgencyUserSummary) => {
+    if (!user.ownerId) {
+      return;
+    }
+
+    setUpdatingUid(user.uid);
+    setFeedback(null);
+    setError(null);
+
+    try {
+      const summary = await suspendAgencyOwnerBillingViaBackend({
+        ownerId: user.ownerId,
+        reason: 'Suspension manuelle par l’agence.',
+      });
+      replaceBillingSummary(user.ownerId, summary);
+      setFeedback('La facturation propriétaire est suspendue.');
+    } catch (suspendError) {
+      setError(mapBackendErrorToMessage(suspendError, 'La suspension a échoué.'));
+    } finally {
+      setUpdatingUid(null);
+    }
+  };
+
+  const handleReactivateBilling = async (user: AgencyUserSummary) => {
+    if (!user.ownerId) {
+      return;
+    }
+
+    setUpdatingUid(user.uid);
+    setFeedback(null);
+    setError(null);
+
+    try {
+      const summary = await reactivateAgencyOwnerBillingViaBackend(user.ownerId);
+      replaceBillingSummary(user.ownerId, summary);
+      setFeedback('La facturation propriétaire est réactivée.');
+    } catch (reactivateError) {
+      setError(mapBackendErrorToMessage(reactivateError, 'La réactivation a échoué.'));
+    } finally {
+      setUpdatingUid(null);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <FlatList
@@ -189,7 +351,21 @@ export default function AgencyOwnersScreen() {
         }
         renderItem={({ item }) => (
           <OwnerRow
+            billing={
+              item.role === 'owner'
+                ? billingItems.find((billing) => billing.owner.ownerId === item.ownerId)
+                : undefined
+            }
             isUpdating={updatingUid === item.uid}
+            onMarkPaid={(selectedUser) => {
+              void handleMarkBillingPaid(selectedUser);
+            }}
+            onReactivateBilling={(selectedUser) => {
+              void handleReactivateBilling(selectedUser);
+            }}
+            onSuspendBilling={(selectedUser) => {
+              void handleSuspendBilling(selectedUser);
+            }}
             onToggleStatus={(selectedUser) => {
               void handleToggleStatus(selectedUser);
             }}
@@ -245,5 +421,13 @@ const styles = StyleSheet.create({
   meta: {
     color: colors.textMuted,
     ...typography.caption,
+  },
+  billingBox: {
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: spacing.xs,
+    padding: spacing.sm,
   },
 });

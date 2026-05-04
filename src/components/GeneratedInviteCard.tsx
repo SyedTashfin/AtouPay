@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { useI18n } from '@/src/i18n/I18nProvider';
 import { colors } from '@/src/theme/colors';
 import { radius } from '@/src/theme/radius';
 import { shadows } from '@/src/theme/shadows';
@@ -26,20 +27,24 @@ function InviteRow({
   onPress?: () => void;
   value: string;
 }) {
+  const { copy, isRtl } = useI18n();
+  const localizedLabel = copy(label);
+  const localizedActionLabel = copy(actionLabel);
+
   return (
     <View style={styles.row}>
-      <Text style={styles.label}>{label}</Text>
+      <Text style={[styles.label, isRtl && styles.rtlText]}>{localizedLabel}</Text>
       <Text selectable style={styles.value}>
         {value}
       </Text>
       {onPress ? (
         <Pressable
-          accessibilityHint={`Copie ${label.toLowerCase()} dans le presse-papiers`}
-          accessibilityLabel={actionLabel}
+          accessibilityHint={`${copy('Copie')} ${localizedLabel.toLowerCase()} ${copy('dans le presse-papiers')}`}
+          accessibilityLabel={localizedActionLabel}
           accessibilityRole="button"
           onPress={onPress}
           style={({ pressed }) => [styles.copyButton, pressed && styles.pressed]}>
-          <Text style={styles.copyText}>{actionLabel}</Text>
+          <Text style={styles.copyText}>{localizedActionLabel}</Text>
         </Pressable>
       ) : null}
     </View>
@@ -53,17 +58,20 @@ export function GeneratedInviteCard({
   onCopyCode,
   onCopyLink,
 }: GeneratedInviteCardProps) {
+  const { copy, isRtl } = useI18n();
+
   return (
     <View style={styles.card}>
       <View style={styles.copy}>
-        <Text style={styles.title}>Invitation prête</Text>
-        <Text style={styles.description}>
-          Cette invitation est à usage unique et expire le {formatDateLabel(expiresAt)}.
+        <Text style={[styles.title, isRtl && styles.rtlText]}>{copy('Code logement prêt')}</Text>
+        <Text style={[styles.description, isRtl && styles.rtlText]}>
+          {copy('Envoyez le code ou le lien au locataire. Une seule utilisation, expiration le')}{' '}
+          {formatDateLabel(expiresAt)}.
         </Text>
       </View>
 
-      <InviteRow actionLabel="Copier le code" label="Code" onPress={onCopyCode} value={code} />
-      <InviteRow actionLabel="Copier le lien" label="Lien" onPress={onCopyLink} value={inviteLink} />
+      <InviteRow actionLabel="Copier le code" label="Code à envoyer" onPress={onCopyCode} value={code} />
+      <InviteRow actionLabel="Copier le lien" label="Lien ouvrant l’app" onPress={onCopyLink} value={inviteLink} />
     </View>
   );
 }
@@ -109,5 +117,8 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.75,
+  },
+  rtlText: {
+    writingDirection: 'rtl',
   },
 });

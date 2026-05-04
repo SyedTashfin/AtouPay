@@ -10,16 +10,16 @@ export default function TenantLayout() {
       screenOptions={{
         headerShown: false,
         sceneStyle: {
-          backgroundColor: colors.background,
+          backgroundColor: colors.role.tenant.background,
         },
-        tabBarActiveTintColor: colors.primary,
+        tabBarActiveTintColor: colors.role.tenant.active,
         tabBarInactiveTintColor: colors.textMuted,
         tabBarLabelStyle: {
           ...typography.caption,
         },
         tabBarStyle: {
-          backgroundColor: colors.surface,
-          borderTopColor: colors.border,
+          backgroundColor: colors.role.tenant.surface,
+          borderTopColor: colors.role.tenant.border,
           height: 68,
           paddingBottom: 8,
           paddingTop: 6,
@@ -36,11 +36,13 @@ export default function TenantLayout() {
       <Tabs.Screen
         name="payments"
         options={{
-          title: 'Paiements',
-          tabBarAccessibilityLabel: 'Paiements locataire',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons color={color} name="wallet-outline" size={size} />
-          ),
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="receipts"
+        options={{
+          href: null,
         }}
       />
       <Tabs.Screen
@@ -52,8 +54,8 @@ export default function TenantLayout() {
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Profil',
-          tabBarAccessibilityLabel: 'Profil locataire',
+          title: 'Compte',
+          tabBarAccessibilityLabel: 'Compte locataire',
           tabBarIcon: ({ color, size }) => (
             <Ionicons color={color} name="person-outline" size={size} />
           ),

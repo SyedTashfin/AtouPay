@@ -132,7 +132,7 @@ export default function TenantPaymentsScreen() {
 
 const styles = StyleSheet.create({
   safeArea: {
-    backgroundColor: colors.background,
+    backgroundColor: colors.role.tenant.background,
     flex: 1,
   },
   content: {

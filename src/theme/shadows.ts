@@ -2,43 +2,43 @@ import { colors } from '@/src/theme/colors';
 
 export const shadows = {
   card: {
-    shadowColor: '#0A291A',
-    shadowOpacity: 0.08,
+    shadowColor: '#111813',
+    shadowOpacity: 0.05,
     shadowOffset: {
       width: 0,
-      height: 12,
+      height: 6,
     },
-    shadowRadius: 28,
-    elevation: 3,
+    shadowRadius: 12,
+    elevation: 1,
   },
   glass: {
-    shadowColor: '#082619',
-    shadowOpacity: 0.12,
+    shadowColor: '#111813',
+    shadowOpacity: 0.05,
     shadowOffset: {
       width: 0,
-      height: 18,
+      height: 6,
     },
-    shadowRadius: 36,
-    elevation: 0,
+    shadowRadius: 12,
+    elevation: 1,
   },
   soft: {
     shadowColor: colors.shadow,
-    shadowOpacity: 0.8,
+    shadowOpacity: 0.55,
     shadowOffset: {
       width: 0,
-      height: 8,
+      height: 4,
     },
-    shadowRadius: 18,
+    shadowRadius: 10,
     elevation: 0,
   },
   button: {
-    shadowColor: '#075F41',
-    shadowOpacity: 0.18,
+    shadowColor: '#0A3622',
+    shadowOpacity: 0.14,
     shadowOffset: {
       width: 0,
-      height: 10,
+      height: 5,
     },
-    shadowRadius: 18,
-    elevation: 3,
+    shadowRadius: 10,
+    elevation: 1,
   },
 };

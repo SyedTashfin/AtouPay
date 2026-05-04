@@ -1,5 +1,5 @@
 export type Role = 'agency_admin' | 'tenant' | 'owner';
-export type AuthProvider = 'demo' | 'google' | 'password';
+export type AuthProvider = 'demo' | 'google' | 'password' | 'phone';
 export type SessionKind = 'demo' | 'firebase';
 
 export type PaymentStatus = 'cancelled' | 'disputed' | 'failed' | 'late' | 'paid' | 'pending';
@@ -25,6 +25,12 @@ export type NotificationType =
   | 'account_reactivated'
   | 'account_suspended'
   | 'owner_activated'
+  | 'owner_billing_due'
+  | 'owner_billing_grace_period'
+  | 'owner_billing_paid'
+  | 'owner_billing_past_due'
+  | 'owner_billing_reactivated'
+  | 'owner_billing_suspended'
   | 'owner_invite_created'
   | 'payment_completed'
   | 'payment_overdue'
@@ -37,7 +43,11 @@ export type AuditEventType =
   | 'account_reactivated'
   | 'account_suspended'
   | 'owner_activated'
+  | 'owner_billing_paid'
+  | 'owner_billing_reactivated'
+  | 'owner_billing_suspended'
   | 'owner_invite_created'
+  | 'owner_invite_deleted'
   | 'owner_invite_revoked'
   | 'payment_completed'
   | 'support_request_created'
@@ -112,6 +122,8 @@ export interface OwnerRecord {
 }
 
 export interface AgencyRecord {
+  // Deprecated: retained only for historical agency documents.
+  // New tenant rent payments do not use agency commission settings.
   commissionRate: number;
   commissionType: CommissionType;
   createdAt?: string;
@@ -160,6 +172,7 @@ export interface UnitRecord {
   currency: string;
   id: string;
   label: string;
+  notes?: string | null;
   ownerId: string;
   propertyId: string;
   rentAmount: number;
@@ -197,6 +210,8 @@ export interface TenantInviteRecord {
 }
 
 export interface RentPaymentRecord {
+  // Deprecated compatibility fields. New rent records keep commissionRate and
+  // agencyFeeAmount at 0, with ownerNetAmount equal to rentAmount.
   agencyFeeAmount: number;
   agencyId?: string | null;
   commissionRate: number;
@@ -206,19 +221,25 @@ export interface RentPaymentRecord {
   id: string;
   monthKey: string;
   ownerId: string;
+  ownerReceivableAmount?: number;
   paidAt?: string | null;
   paymentMethod?: PaymentProvider | null;
   paymentStatus: PaymentStatus;
   ownerNetAmount: number;
+  platformRentFeeAmount?: number;
   propertyId: string;
   providerReference?: string | null;
   receiptId?: string | null;
+  rentAmount?: number;
   tenantId: string;
+  tenantFeeAmount?: number;
   unitId: string;
   updatedAt?: string;
 }
 
 export interface ReceiptRecord {
+  // Deprecated rent commission fields retained for historical receipts only.
+  // Receipt UI/PDF must not present these as current charges.
   agencyFeeAmount: number;
   agencyDisplayName?: string;
   agencyId?: string | null;
@@ -336,6 +357,7 @@ export interface Property {
   id: string;
   monthlyRent: number;
   name: string;
+  notes?: string | null;
   occupancyStatus: OccupancyStatus;
   ownerId: string;
   tenantIds: string[];
@@ -344,6 +366,8 @@ export interface Property {
 
 export interface PaymentRecord {
   amount: number;
+  // Deprecated compatibility fields. Current UI must not present these as an
+  // active fee model.
   agencyFeeAmount?: number;
   agencyId?: string | null;
   commissionRate?: number;
@@ -353,13 +377,17 @@ export interface PaymentRecord {
   monthKey: string;
   ownerId: string;
   ownerNetAmount?: number;
+  ownerReceivableAmount?: number;
   paidAt?: string;
+  platformRentFeeAmount?: number;
   propertyId: string;
   provider?: PaymentProvider;
   receiptId?: string;
   referenceId: string;
+  rentAmount?: number;
   status: PaymentStatus;
   tenantId: string;
+  tenantFeeAmount?: number;
   unitId?: string;
 }
 
@@ -391,6 +419,79 @@ export interface AgencySettingsState {
   commissionRate: number;
   commissionType: CommissionType;
   displayName: string;
+  legacyCommissionRate: number;
+  ownerAccountFeeAmount: number;
+  ownerAccountFeeCurrency: 'EUR';
+  ownerAccountFeeIntervalDays: number;
+}
+
+export type OwnerBillingStatus = 'active' | 'grace_period' | 'past_due' | 'suspended';
+export type OwnerBillingInvoiceStatus = 'open' | 'paid' | 'overdue' | 'void';
+export type OwnerBillingPaymentProvider = 'simulated' | 'manual' | 'moosyl' | 'stripe';
+
+export interface OwnerBillingAccount {
+  agencyId: string;
+  createdAt: string;
+  currentPeriodEnd: string;
+  currentPeriodStart: string;
+  feeAmount: number;
+  feeCurrency: 'EUR';
+  gracePeriodEndsAt?: string;
+  intervalDays: number;
+  lastPaidAt?: string;
+  nextPaymentDueAt: string;
+  ownerId: string;
+  status: OwnerBillingStatus;
+  updatedAt: string;
+}
+
+export interface OwnerBillingInvoice {
+  agencyId: string;
+  amount: number;
+  createdAt: string;
+  currency: 'EUR';
+  dueAt: string;
+  invoiceId: string;
+  label: 'owner_account_access';
+  note?: string;
+  ownerId: string;
+  paidAt?: string;
+  periodEnd: string;
+  periodStart: string;
+  provider: OwnerBillingPaymentProvider;
+  providerReference?: string;
+  status: OwnerBillingInvoiceStatus;
+  updatedAt: string;
+}
+
+export interface OwnerBillingSummary {
+  account: OwnerBillingAccount;
+  activeUntil: string;
+  canCreateInvites: boolean;
+  canManageProperties: boolean;
+  feeAmount: number;
+  feeCurrency: 'EUR';
+  intervalDays: number;
+  latestInvoice: OwnerBillingInvoice | null;
+  nextPaymentDueAt: string;
+  statusMessage: string;
+}
+
+export interface AgencyOwnerBillingSummary {
+  account: OwnerBillingAccount;
+  activeUntil: string;
+  canCreateInvites: boolean;
+  canManageProperties: boolean;
+  latestInvoice: OwnerBillingInvoice | null;
+  nextPaymentDueAt: string;
+  owner: {
+    displayName: string;
+    email: string;
+    ownerId: string;
+    status: UserStatus;
+    uid: string;
+  };
+  statusMessage: string;
 }
 
 export interface LegalTermsSectionRecord {
@@ -485,7 +586,10 @@ export interface SupportStatusBreakdown {
 export interface MoneySummary {
   agencyFeeAmount: number;
   grossAmount: number;
+  ownerReceivableAmount: number;
   ownerNetAmount: number;
+  platformRentFeeAmount: number;
+  tenantFeeAmount: number;
 }
 
 export interface AgencyDashboardSummary {
