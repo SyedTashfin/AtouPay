@@ -4,13 +4,18 @@
 
 ATouPay is an Expo Router mobile MVP focused only on payment-first rental workflows for tenants and owners.
 
+## Recruiter snapshot
+- Mobile product with a real business workflow, not a UI demo
+- Expo Router React Native front end paired with a Fastify backend and Firebase auth/data
+- Strong evidence of production thinking: receipt generation, role-based flows, recovery, notifications, and backend write protection
+
 ## Repository status
 
 - Public source repository for the ATouPay mobile app and backend service
 - Expo Router React Native app with native iOS and Android projects
 - Fastify backend for critical write flows, receipt issuance, support, and agency operations
 - Firebase Auth and Firestore integration
-- Payments are simulated until a real provider is explicitly integrated and verified
+- Tenant rent payments use a provider boundary with `simulated` as the default provider and a Moosyl test-mode adapter available behind backend env config
 
 ## Backend status
 
@@ -30,7 +35,7 @@ The mobile app can route the minimum end-to-end write slice through the backend 
 - tenant invite generation
 - tenant invite redemption
 
-Current reads remain on Firestore in the Expo app for the lowest-risk local test setup. Payments are still simulated.
+Current reads remain on Firestore in the Expo app for the lowest-risk local test setup. Tenant rent payments can now create backend payment intents; simulated remains the default provider.
 
 ## Trust, recovery, and receipt hardening
 
@@ -55,7 +60,7 @@ Important:
 - phone recovery is **not** fully enabled at this stage
 - the app stores a phone number and recovery preference for agency callback/support handling
 - actual phone-based sign-in or recovery still requires Firebase Phone Auth enablement and verification setup
-- payments remain simulated unless a real provider is explicitly integrated and verified
+- tenant rent payment settlement remains simulated by default; the Moosyl adapter is available for test/sandbox rent intents only
 
 ## Current operational product slice
 
@@ -73,7 +78,7 @@ Normal owner onboarding no longer depends on CLI-only invite issuance:
 - the owner activates access with an agency invite code or link
 - the active owner creates properties, units, and tenant invites
 - a tenant authenticates and redeems the unit invite
-- rent payments remain simulated, but the ledger now records:
+- rent payments use the backend payment module, with simulated as the default provider, and the ledger records:
   - `rentAmount`
   - `grossAmount`
   - `tenantFeeAmount: 0`
@@ -82,7 +87,7 @@ Normal owner onboarding no longer depends on CLI-only invite issuance:
   - `commissionRate: 0` for backward compatibility
   - `ownerReceivableAmount`
   - `agencyId`
-- the backend now generates receipts and verification tokens for simulated payments
+- the backend now generates receipts and verification tokens for simulated payments and backend-confirmed provider payments
 
 Important:
 
@@ -94,7 +99,7 @@ Important:
 - receipt QR/PDF/share are implemented for backend-issued receipts
 - notifications are in-app records only; push notifications are not configured yet
 - invite e-mail delivery is available through Resend when `RESEND_API_KEY` and `EMAIL_FROM` are configured on the backend
-- payment settlement is still simulated
+- live payment settlement is not enabled by default; Moosyl is wired for tenant rent test-mode integration only
 - no real banking or mobile money split disbursement is implied
 
 The backend design documents remain here:
@@ -110,7 +115,7 @@ The simplest production-like local path for ATouPay right now is:
 - Expo app using that project for Firebase Auth and Firestore reads
 - local Fastify backend using Firebase Admin SDK against the same project
 - `EXPO_PUBLIC_USE_BACKEND=true` so critical writes go through the backend
-- simulated payments only
+- simulated payments by default, with optional Moosyl test-mode tenant rent intents when backend env vars are configured
 
 This path does **not** use Firebase emulators.
 
@@ -245,6 +250,37 @@ The current business model separates tenant rent from owner account access:
 
 The old agency commission setting is deprecated and hidden from normal agency UI. Existing historical simulated records may still contain old commission fields, but new rent payments must not use them.
 
+### Manual Bankily fraud-reduction controls
+
+Manual Bankily/direct rent payments are a proof-and-review workflow, not a bank-confirmed provider workflow:
+
+- each rent payment has an immutable `atouPayReference` like `ATP-A1-AVR26-8K4`
+- tenants must submit the ATouPay reference, amount, MRU currency, payment date, method, and a transaction reference, screenshot, or note
+- the backend records `proofCheckResult` for reference, amount, currency, date, image presence, warnings, and `low | medium | high` risk level
+- screenshot proof is supporting evidence only and does not mark rent paid
+- high-risk proof requires agency review; agency confirmation of high-risk proof requires an override reason
+- owner Bankily payment details must be agency-verified before tenants can see/use direct payment details
+- owner reminders run through `POST /v1/tasks/manual-proof-reminders/run` with `INTERNAL_TASK_SECRET`
+- receipts are generated only after owner or agency confirmation and never claim Bankily/provider confirmation for manual proof
+
+### Tenant rent payment provider module
+
+ATouPay now has the first provider-agnostic backend module for tenant rent payments only:
+
+- `PAYMENT_PROVIDER=simulated` is the default and keeps the existing simulated rent payment flow working
+- `PAYMENT_PROVIDER=moosyl` enables the Moosyl adapter for tenant rent payment intents when required Moosyl env vars are present
+- `PAYMENT_LIVE_MODE=false` is the default
+- production blocks real-provider calls while `PAYMENT_LIVE_MODE=false`
+- Moosyl currently targets MRU rent amounts
+- Moosyl webhook handling verifies the raw body HMAC signature, stores webhook attempts, and handles duplicate paid callbacks idempotently
+- rent receipts are generated once after backend-confirmed payment completion
+- frontend checkout or SDK success is never enough to mark rent paid
+- provider secrets stay backend-only; the Expo app can receive only safe fields such as the Moosyl publishable key, transaction ID, and checkout URL
+
+Owner account access fee payment is intentionally not live-provider-enabled in this module.
+
+See [Tenant Rent Payment Module: Moosyl](./docs/payment-module-moosyl.md) and [Payment Provider Readiness](./docs/payment-provider-readiness.md).
+
 ### Terms of use and responsibility
 
 ATouPay now serves a backend-owned, versioned terms document. Users must accept the currently active version before full app usage when backend mode is enabled.
@@ -336,40 +372,42 @@ Receipt wording is intentionally careful. The current app uses wording along the
 - `peut servir de justificatif de paiement selon les informations enregistrées dans le système`
 - when applicable, an explicit marker that the payment is simulated and no real debit occurred
 
-Every receipt still states clearly that the payment is simulated and no real debit occurred.
+Simulated receipts state clearly that the payment is simulated and no real debit occurred.
+Provider-confirmed rent receipts use separate wording: `Paiement confirmé par le prestataire de paiement.` and may show a safe provider reference.
 The product does **not** claim automatic banking certification, government certification, or real settlement when those things are not actually in place.
 
-### Future fintech/provider readiness
+### Provider readiness
 
-The backend now has a small payment-provider boundary for the current simulated finalization path. It deliberately returns only simulated provider references today.
+The backend now has provider-agnostic tenant rent payment records, simulated and Moosyl adapters, webhook event storage, HMAC verification, duplicate webhook handling, and mismatch reconciliation records.
 
-Before any real provider is enabled, the system still needs:
+Before live money movement is enabled, the system still needs:
 
-- provider credentials stored outside the mobile app
-- webhook signature verification
-- idempotent provider references
-- real failure/cancel/dispute handling
-- reconciliation against provider statements
-- confirmed provider settlement wording for rent payments and separate owner access fees
+- provider credentials stored in protected runtime configuration or a secret manager
+- approved merchant-of-record and settlement model
+- pilot reconciliation against provider statements
+- documented refund and dispute process
+- production monitoring and operator runbooks
+- approved store/distribution policy for any paid account-access features
 
 ### Payment module next-stage decision guide
 
-The next payment-development stage should keep the current simulated flow working while a real provider path is selected, designed, and verified behind the backend boundary.
+The next payment-development stage should validate Moosyl test mode end to end with a pilot workflow while keeping the current simulated flow working.
 
 Current confirmed state:
 
 - tenants can complete a backend-owned simulated payment flow
+- tenants can create backend-owned Moosyl test-mode rent payment intents when backend env vars are configured
 - the backend writes the paid payment state, provider reference, receipt number, receipt record, verification token, and audit log
 - the rent ledger stores rent amount, zero tenant fee, zero platform rent fee, zero legacy agency commission fields, agency ID, owner ID, tenant ID, property ID, and unit ID
 - owner account access billing is stored separately from rent in owner billing collections
 - supported payment labels in the app are `Bankily`, `Sedad`, `Masrvi`, and `Carte bancaire`
-- no real debit, wallet transfer, card authorization, bank settlement, payout, or split disbursement exists yet
+- no live debit, wallet transfer, card authorization, bank settlement, payout, refund automation, or split disbursement is enabled by default
 
-Decisions to make before coding the real payment module:
+Decisions to make before live provider rollout:
 
 | Decision area | Options to settle | Required outcome |
 | --- | --- | --- |
-| First provider | Bankily, Sedad, Masrvi, card processor, or aggregator | Choose one sandbox-first provider and document its API, webhook, refund, and payout support |
+| First provider | Moosyl test mode is implemented first; Stripe or another provider remains a later decision | Validate Moosyl sandbox behavior before any live credentials |
 | Merchant model | ATouPay as merchant, agency as merchant, owner as merchant, or provider-managed merchant | Define who receives funds, who signs provider/KYC agreements, and who handles payment support |
 | Settlement model | Direct owner rent payout, agency collection, platform collection, or separate owner access billing | Approve how rent movement stays separate from the 10 EUR owner account fee |
 | Receipt wording | Simulated receipt, provider-confirmed receipt, or settlement-confirmed receipt | Approve when a receipt can say payment is completed and what it legally proves |
@@ -380,12 +418,11 @@ Decisions to make before coding the real payment module:
 
 Recommended implementation sequence:
 
-1. Add provider-agnostic backend models for payment intents, payment attempts, provider transactions, webhook events, refunds/disputes, and reconciliation records.
-2. Keep the current simulated provider as the first adapter so the app can move to the new contract without enabling real money movement.
-3. Add backend endpoints for create intent, confirm attempt, provider webhook handling, payment status lookup, cancellation/failure, refund/dispute recording, and reconciliation review.
-4. Add security controls before any real provider call: Secret Manager or equivalent for credentials, webhook signature checks, replay protection, idempotency keys, audit logging, and least-privilege service accounts.
-5. Integrate one provider sandbox and test every expected and unexpected callback path before production credentials are added.
-6. Run a limited production pilot only after reconciliation, failure handling, support escalation, and receipt wording are approved.
+1. Run Moosyl test-mode intent creation and webhook confirmation through a tunnel.
+2. Verify duplicate, failed, cancelled, amount-mismatch, and currency-mismatch callbacks against real sandbox payloads.
+3. Decide merchant of record, fee ownership, payout timing, reconciliation process, and support ownership.
+4. Store provider secrets in protected runtime configuration before deployment.
+5. Run a limited production pilot only after reconciliation, failure handling, support escalation, and receipt wording are approved.
 
 Do not start production payment integration until these inputs are available:
 
@@ -623,7 +660,7 @@ Important implementation notes:
 - `GoogleService-Info.plist` is not required for the current email/password + Firestore JS SDK flow.
 - `google-services.json` is not required for the current email/password + Firestore JS SDK flow.
 - If Firebase env values are missing, the app stays runnable, manual auth is disabled with an explanatory notice, and internal demo shortcuts remain available in development/preview builds.
-- Payments are still simulated in this version. No real charge or payment gateway integration is performed.
+- Tenant rent payments default to simulated mode. Moosyl test-mode rent intents require backend env config and do not enable live money movement by default.
 
 ### Tenant assignment and invite flow
 
@@ -703,14 +740,14 @@ Expected result:
 4. Paste or enter the invite code on the tenant home screen.
 5. Redeem the invite.
 6. Confirm the tenant now sees the linked rental/unit data.
-7. Open the rent payment screen and complete the existing simulated payment flow.
+7. Open the rent payment screen and complete the existing simulated payment flow, or create a Moosyl test intent when the backend is configured for Moosyl.
 
 Expected result:
 
 - the invite redemption succeeds through the backend
 - the tenant is bound to the invited unit only
 - the owner side reflects the tenant and unit assignment
-- the payment UI remains explicitly simulated and no real debit is implied
+- the default payment UI remains simulated; Moosyl test mode still waits for backend/provider confirmation before a receipt is created
 
 Security notes for this flow:
 
@@ -824,7 +861,7 @@ npm run android
 ```
 
 - If the OAuth values are missing, the app keeps rendering and the Google button stays disabled with an explanatory notice in development/preview builds.
-- Payments are still simulated in this version. ATouPay does not perform any real charge or payment gateway integration yet.
+- Payments default to the simulated provider. ATouPay does not enable live provider money movement until production provider configuration, reconciliation, and launch approvals are in place.
 
 ## Internal preview builds
 
