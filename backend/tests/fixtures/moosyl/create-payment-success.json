@@ -1,0 +1,10 @@
+{
+  "status": "success",
+  "data": {
+    "id": "mpr_test_001",
+    "transactionId": "moosyl-transaction-1",
+    "checkoutUrl": "https://checkout.moosyl.test/pay/moosyl-transaction-1",
+    "amount": 200000,
+    "currency": "MRU"
+  }
+}

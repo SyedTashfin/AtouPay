@@ -185,6 +185,12 @@ function createFallbackOwnerUser(
 ): OwnerUser {
   return {
     ...seededOwnerUser,
+    bankilyDeepLinkTemplate: null,
+    bankilyIntegrationMode: 'not_configured',
+    bankilyMerchantCode: null,
+    bankilyPaymentMethodStatus: 'draft',
+    bankilyPhoneNumber: null,
+    bankilyQrImageUrl: null,
     email: sessionEmail ?? seededOwnerUser.email,
     fullName: sessionName ?? seededOwnerUser.fullName,
     id: seededOwnerUser.id,
@@ -911,21 +917,6 @@ export function AppProvider({ children }: PropsWithChildren) {
       return result;
     }
 
-    const simulationResult = await simulatePaymentProcessing(provider);
-
-    if (!simulationResult.ok) {
-      reportDataEvent({
-        action: 'payment-simulation',
-        message: simulationResult.message,
-        scope: 'payment',
-        status: 'error',
-        title: simulationResult.title,
-      });
-      pushToast('error', simulationResult.title, simulationResult.message);
-
-      return simulationResult;
-    }
-
     if (isFirebaseDataMode && session?.role === 'tenant' && session.firebaseUid) {
       const result = await submitSimulatedRentPayment({
         paymentId,
@@ -942,6 +933,21 @@ export function AppProvider({ children }: PropsWithChildren) {
       });
       pushToast(result.ok ? 'success' : 'error', result.title, result.message);
       return result;
+    }
+
+    const simulationResult = await simulatePaymentProcessing(provider);
+
+    if (!simulationResult.ok) {
+      reportDataEvent({
+        action: 'payment-simulation',
+        message: simulationResult.message,
+        scope: 'payment',
+        status: 'error',
+        title: simulationResult.title,
+      });
+      pushToast('error', simulationResult.title, simulationResult.message);
+
+      return simulationResult;
     }
 
     const paidAt = new Date().toISOString();

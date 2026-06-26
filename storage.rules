@@ -1,0 +1,84 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userPath(userId) {
+      return /databases/(default)/documents/users/$(userId);
+    }
+
+    function paymentPath(paymentId) {
+      return /databases/(default)/documents/rentPayments/$(paymentId);
+    }
+
+    function currentUserExists() {
+      return signedIn() && firestore.exists(userPath(request.auth.uid));
+    }
+
+    function currentUser() {
+      return firestore.get(userPath(request.auth.uid)).data;
+    }
+
+    function paymentExists(paymentId) {
+      return firestore.exists(paymentPath(paymentId));
+    }
+
+    function payment(paymentId) {
+      return firestore.get(paymentPath(paymentId)).data;
+    }
+
+    function isAllowedProofImage() {
+      return request.resource != null &&
+        request.resource.size > 0 &&
+        request.resource.size <= 5 * 1024 * 1024 &&
+        request.resource.contentType in ['image/jpeg', 'image/png', 'image/webp'];
+    }
+
+    function paymentMatchesPath(agencyId, paymentId, tenantId) {
+      return paymentExists(paymentId) &&
+        payment(paymentId).agencyId == agencyId &&
+        payment(paymentId).tenantId == tenantId;
+    }
+
+    function tenantCanUseProof(agencyId, paymentId, tenantId) {
+      return currentUserExists() &&
+        request.auth.uid == tenantId &&
+        currentUser().role == 'tenant' &&
+        currentUser().status == 'active' &&
+        currentUser().tenantId == tenantId &&
+        paymentMatchesPath(agencyId, paymentId, tenantId);
+    }
+
+    function ownerCanReadProof(agencyId, paymentId, tenantId) {
+      return currentUserExists() &&
+        currentUser().role == 'owner' &&
+        currentUser().status == 'active' &&
+        paymentMatchesPath(agencyId, paymentId, tenantId) &&
+        currentUser().ownerId == payment(paymentId).ownerId;
+    }
+
+    function agencyCanReadProof(agencyId, paymentId, tenantId) {
+      return currentUserExists() &&
+        currentUser().role == 'agency_admin' &&
+        currentUser().status == 'active' &&
+        currentUser().agencyId == agencyId &&
+        paymentMatchesPath(agencyId, paymentId, tenantId);
+    }
+
+    match /paymentProofs/{agencyId}/{paymentId}/{tenantId}/{fileName} {
+      allow create: if tenantCanUseProof(agencyId, paymentId, tenantId) &&
+        isAllowedProofImage();
+      allow get: if tenantCanUseProof(agencyId, paymentId, tenantId) ||
+        ownerCanReadProof(agencyId, paymentId, tenantId) ||
+        agencyCanReadProof(agencyId, paymentId, tenantId);
+      allow list, update, delete: if false;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

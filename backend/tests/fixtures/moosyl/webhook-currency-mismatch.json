@@ -1,0 +1,18 @@
+{
+  "event": "payment-updated",
+  "id": "moosyl-event-currency-mismatch-1",
+  "data": {
+    "id": "moosyl-payment-currency-mismatch-1",
+    "amount": 200000,
+    "currency": "EUR",
+    "status": "completed",
+    "referenceId": "bankily-ref-currency-mismatch-884421",
+    "paymentRequestId": "mpr_test_currency_mismatch_001",
+    "request": {
+      "id": "mpr_test_currency_mismatch_001",
+      "transactionId": "moosyl-transaction-currency-mismatch",
+      "totalAmount": 200000,
+      "currency": "EUR"
+    }
+  }
+}

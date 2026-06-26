@@ -4,13 +4,15 @@ import path from 'node:path';
 import { ZodError, z } from 'zod';
 
 export type AppVariant = 'development' | 'preview' | 'production';
-export type PaymentProviderMode = 'manual' | 'moosyl' | 'simulated' | 'stripe';
+export type PaymentProviderMode = 'moosyl' | 'simulated';
 export type RuntimeMode = 'cloud-run' | 'full-local-emulator' | 'hybrid-local';
 export type CredentialStrategy =
   | 'application-default'
   | 'google-application-credentials'
   | 'none-required'
   | 'service-account-env';
+
+export const PAYMENT_PROVIDER_LIVE_ACK_VALUE = 'I_UNDERSTAND_LIVE_MONEY_MOVEMENT';
 
 interface EmulatorEndpoint {
   host: string;
@@ -23,6 +25,18 @@ const optionalEnvString = z.preprocess(
   z.string().trim().min(1).optional(),
 );
 
+const envBoolean = z.preprocess((value) => {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    return value.trim().toLowerCase() === 'true';
+  }
+
+  return value;
+}, z.boolean());
+
 const envSchema = z.object({
   APP_VARIANT: z.enum(['development', 'preview', 'production']).default('development'),
   APP_INVITE_BASE_URL: z.string().min(1).default('atoupay://auth/login'),
@@ -33,14 +47,22 @@ const envSchema = z.object({
   FIRESTORE_EMULATOR_HOST: optionalEnvString,
   GOOGLE_APPLICATION_CREDENTIALS: optionalEnvString,
   HOST: z.string().trim().min(1).default('0.0.0.0'),
+  INTERNAL_TASK_SECRET: optionalEnvString,
   LOG_LEVEL: z
     .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
     .default('info'),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  PAYMENT_PROVIDER: z.enum(['manual', 'moosyl', 'simulated', 'stripe']).default('simulated'),
+  PAYMENT_LIVE_MODE: envBoolean.default(false),
+  PAYMENT_PROVIDER_LIVE_ACK: optionalEnvString,
+  PAYMENT_PROVIDER: z.enum(['moosyl', 'simulated']).default('simulated'),
   PORT: z.coerce.number().int().positive().default(3001),
   EMAIL_FROM: optionalEnvString,
   EMAIL_REPLY_TO: optionalEnvString,
+  MOOSYL_PUBLISHABLE_KEY: optionalEnvString,
+  MOOSYL_SECRET_KEY: optionalEnvString,
+  MOOSYL_WEBHOOK_SECRET: optionalEnvString,
+  PUBLIC_API_URL: optionalEnvString,
+  PUBLIC_APP_URL: optionalEnvString,
   RESEND_API_KEY: optionalEnvString,
 });
 
@@ -56,6 +78,7 @@ export interface AppConfig {
   firestoreEmulatorHost?: string;
   googleApplicationCredentials?: string;
   host: string;
+  internalTaskSecret?: string;
   inviteBaseUrl: string;
   emailFrom?: string;
   emailReplyTo?: string;
@@ -64,8 +87,15 @@ export interface AppConfig {
   isFirestoreEmulatorEnabled: boolean;
   logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
   nodeEnv: 'development' | 'production' | 'test';
+  paymentLiveMode: boolean;
+  paymentProviderLiveAck?: string;
   paymentProvider: PaymentProviderMode;
   port: number;
+  moosylPublishableKey?: string;
+  moosylSecretKey?: string;
+  moosylWebhookSecret?: string;
+  publicApiUrl?: string;
+  publicAppUrl?: string;
   resendApiKey?: string;
   runtimeMode: RuntimeMode;
 }
@@ -233,6 +263,46 @@ function validateEmailInputs(input: {
   }
 }
 
+function validatePaymentProviderInputs(input: {
+  moosylPublishableKey: string | undefined;
+  moosylSecretKey: string | undefined;
+  moosylWebhookSecret: string | undefined;
+  paymentLiveMode: boolean;
+  paymentProvider: PaymentProviderMode;
+  paymentProviderLiveAck: string | undefined;
+  publicApiUrl: string | undefined;
+  publicAppUrl: string | undefined;
+}) {
+  if (input.paymentProvider !== 'moosyl') {
+    return;
+  }
+
+  const missing = [
+    ['MOOSYL_SECRET_KEY', input.moosylSecretKey],
+    ['MOOSYL_PUBLISHABLE_KEY', input.moosylPublishableKey],
+    ['MOOSYL_WEBHOOK_SECRET', input.moosylWebhookSecret],
+    ['PUBLIC_APP_URL', input.publicAppUrl],
+    ['PUBLIC_API_URL', input.publicApiUrl],
+  ]
+    .filter(([, value]) => !value)
+    .map(([name]) => name);
+
+  if (missing.length > 0) {
+    throw new Error(
+      `PAYMENT_PROVIDER=moosyl requires ${missing.join(', ')}. Keep real values in protected runtime config only.`,
+    );
+  }
+
+  if (
+    input.paymentLiveMode &&
+    input.paymentProviderLiveAck !== PAYMENT_PROVIDER_LIVE_ACK_VALUE
+  ) {
+    throw new Error(
+      `PAYMENT_PROVIDER=moosyl with PAYMENT_LIVE_MODE=true requires PAYMENT_PROVIDER_LIVE_ACK="${PAYMENT_PROVIDER_LIVE_ACK_VALUE}".`,
+    );
+  }
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   try {
     const parsed = envSchema.parse(env);
@@ -264,6 +334,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     validateEmailInputs({
       emailFrom: parsed.EMAIL_FROM,
       resendApiKey: parsed.RESEND_API_KEY,
+    });
+    validatePaymentProviderInputs({
+      moosylPublishableKey: parsed.MOOSYL_PUBLISHABLE_KEY,
+      moosylSecretKey: parsed.MOOSYL_SECRET_KEY,
+      moosylWebhookSecret: parsed.MOOSYL_WEBHOOK_SECRET,
+      paymentLiveMode: parsed.PAYMENT_LIVE_MODE,
+      paymentProvider: parsed.PAYMENT_PROVIDER,
+      paymentProviderLiveAck: parsed.PAYMENT_PROVIDER_LIVE_ACK,
+      publicApiUrl: parsed.PUBLIC_API_URL,
+      publicAppUrl: parsed.PUBLIC_APP_URL,
     });
 
     const credentialStrategy = resolveCredentialStrategy({
@@ -305,6 +385,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
           }
         : {}),
       host: parsed.HOST,
+      ...(parsed.INTERNAL_TASK_SECRET ? { internalTaskSecret: parsed.INTERNAL_TASK_SECRET } : {}),
       inviteBaseUrl: parsed.APP_INVITE_BASE_URL,
       ...(parsed.EMAIL_FROM
         ? {
@@ -321,8 +402,39 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       isFirestoreEmulatorEnabled: Boolean(firestoreEmulator),
       logLevel: parsed.LOG_LEVEL,
       nodeEnv: parsed.NODE_ENV,
+      paymentLiveMode: parsed.PAYMENT_LIVE_MODE,
+      ...(parsed.PAYMENT_PROVIDER_LIVE_ACK
+        ? {
+            paymentProviderLiveAck: parsed.PAYMENT_PROVIDER_LIVE_ACK,
+          }
+        : {}),
       paymentProvider: parsed.PAYMENT_PROVIDER,
       port: parsed.PORT,
+      ...(parsed.MOOSYL_PUBLISHABLE_KEY
+        ? {
+            moosylPublishableKey: parsed.MOOSYL_PUBLISHABLE_KEY,
+          }
+        : {}),
+      ...(parsed.MOOSYL_SECRET_KEY
+        ? {
+            moosylSecretKey: parsed.MOOSYL_SECRET_KEY,
+          }
+        : {}),
+      ...(parsed.MOOSYL_WEBHOOK_SECRET
+        ? {
+            moosylWebhookSecret: parsed.MOOSYL_WEBHOOK_SECRET,
+          }
+        : {}),
+      ...(parsed.PUBLIC_API_URL
+        ? {
+            publicApiUrl: parsed.PUBLIC_API_URL,
+          }
+        : {}),
+      ...(parsed.PUBLIC_APP_URL
+        ? {
+            publicAppUrl: parsed.PUBLIC_APP_URL,
+          }
+        : {}),
       ...(parsed.RESEND_API_KEY
         ? {
             resendApiKey: parsed.RESEND_API_KEY,

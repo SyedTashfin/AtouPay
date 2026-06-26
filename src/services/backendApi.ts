@@ -19,6 +19,8 @@ import {
   RecoveryContactPreference,
   ReceiptRecord,
   ReceiptVerificationResult,
+  RentPaymentIntentSummary,
+  RentPaymentStatusSummary,
   Role,
   SupportRequestCategory,
   SupportRequestRecord,
@@ -126,6 +128,26 @@ interface CreateSupportRequestInput {
   phoneNumber?: string | null;
   recoveryContactPreference?: RecoveryContactPreference | null;
   subject: string;
+}
+
+interface SubmitManualPaymentProofInput {
+  note?: string | null;
+  paymentId: string;
+  paymentMethod?: PaymentProvider;
+  proofImageContentType?: string | null;
+  proofImageFileName?: string | null;
+  proofImageOriginalFileName?: string | null;
+  proofImageSizeBytes?: number | null;
+  proofImageStoragePath?: string | null;
+  providerReference?: string | null;
+  submittedAmount: number;
+  submittedCurrency: 'MRU';
+  submittedNote?: string | null;
+  submittedPaymentDate: string;
+  submittedPaymentMethod: 'bankily' | 'sedad' | 'masrvi' | 'bank_transfer' | 'cash' | 'cheque' | 'other';
+  submittedPaymentReference: string;
+  submittedPaymentTime?: string | null;
+  submittedTransactionReference?: string | null;
 }
 
 export class BackendApiError extends Error {
@@ -362,6 +384,27 @@ export async function updateSupportRequestViaBackend(input: {
   );
 }
 
+export async function reviewManualPaymentProofViaBackend(input: {
+  decision: 'confirmed' | 'disputed' | 'rejected';
+  note?: string | null;
+  overrideReason?: string | null;
+  requestId: string;
+  settlementNote?: string | null;
+}) {
+  return requestJson<SupportRequestRecord>(
+    `/v1/support/requests/${encodeURIComponent(input.requestId)}/manual-proof/review`,
+    {
+      body: JSON.stringify({
+        decision: input.decision,
+        ...(input.note?.trim() ? { note: input.note.trim() } : {}),
+        ...(input.overrideReason?.trim() ? { overrideReason: input.overrideReason.trim() } : {}),
+        ...(input.settlementNote?.trim() ? { settlementNote: input.settlementNote.trim() } : {}),
+      }),
+      method: 'POST',
+    },
+  );
+}
+
 export async function createOwnerPropertyViaBackend(input: {
   address: string;
   label: string;
@@ -524,6 +567,29 @@ export async function listAgencyOwnersViaBackend() {
   });
 }
 
+export async function reviewOwnerBankilyPaymentMethodViaBackend(input: {
+  note?: string | null;
+  ownerId: string;
+  status: 'verified' | 'rejected' | 'disabled';
+}) {
+  return requestJson<{
+    agencyId: string | null;
+    bankilyPaymentMethodStatus?: string;
+    displayName: string;
+    ownerId: string;
+    userId: string;
+  }>(
+    `/v1/agency/owners/${encodeURIComponent(input.ownerId)}/payment-method/bankily/review`,
+    {
+      body: JSON.stringify({
+        ...(input.note?.trim() ? { note: input.note.trim() } : {}),
+        status: input.status,
+      }),
+      method: 'POST',
+    },
+  );
+}
+
 export async function getAgencyDashboardViaBackend(period: DashboardPeriod = 'this_month') {
   return requestJson<AgencyDashboardSummary>(
     `/v1/agency/dashboard?period=${encodeURIComponent(period)}`,
@@ -674,6 +740,95 @@ export async function completeSimulatedPaymentViaBackend(input: {
       body: JSON.stringify({
         paymentMethod: input.paymentMethod,
       }),
+      method: 'POST',
+    },
+  );
+}
+
+export async function confirmManualRentPaymentViaBackend(input: {
+  note?: string | null;
+  paymentId: string;
+  paymentMethod?: PaymentProvider;
+  providerReference?: string | null;
+}) {
+  return requestJson<CompleteSimulatedPaymentResponse>(
+    `/v1/payments/${encodeURIComponent(input.paymentId)}/manual-confirm`,
+    {
+      body: JSON.stringify({
+        ...(input.note?.trim() ? { note: input.note.trim() } : {}),
+        ...(input.paymentMethod ? { paymentMethod: input.paymentMethod } : {}),
+        ...(input.providerReference?.trim()
+          ? { providerReference: input.providerReference.trim() }
+          : {}),
+      }),
+      method: 'POST',
+    },
+  );
+}
+
+export async function submitManualPaymentProofViaBackend(input: SubmitManualPaymentProofInput) {
+  return requestJson<SupportRequestRecord>(
+    `/v1/payments/${encodeURIComponent(input.paymentId)}/manual-proof`,
+    {
+      body: JSON.stringify({
+        ...(input.note?.trim() ? { note: input.note.trim() } : {}),
+        ...(input.paymentMethod ? { paymentMethod: input.paymentMethod } : {}),
+        ...(input.proofImageContentType
+          ? { proofImageContentType: input.proofImageContentType }
+          : {}),
+        ...(input.proofImageFileName ? { proofImageFileName: input.proofImageFileName } : {}),
+        ...(input.proofImageOriginalFileName
+          ? { proofImageOriginalFileName: input.proofImageOriginalFileName }
+          : {}),
+        ...(typeof input.proofImageSizeBytes === 'number'
+          ? { proofImageSizeBytes: input.proofImageSizeBytes }
+          : {}),
+        ...(input.proofImageStoragePath
+          ? { proofImageStoragePath: input.proofImageStoragePath }
+          : {}),
+        ...(input.providerReference?.trim()
+          ? { providerReference: input.providerReference.trim() }
+          : {}),
+        submittedAmount: input.submittedAmount,
+        submittedCurrency: input.submittedCurrency,
+        ...(input.submittedNote?.trim() ? { submittedNote: input.submittedNote.trim() } : {}),
+        submittedPaymentDate: input.submittedPaymentDate,
+        submittedPaymentMethod: input.submittedPaymentMethod,
+        submittedPaymentReference: input.submittedPaymentReference.trim(),
+        ...(input.submittedPaymentTime?.trim()
+          ? { submittedPaymentTime: input.submittedPaymentTime.trim() }
+          : {}),
+        ...(input.submittedTransactionReference?.trim()
+          ? { submittedTransactionReference: input.submittedTransactionReference.trim() }
+          : {}),
+      }),
+      method: 'POST',
+    },
+  );
+}
+
+export async function createRentPaymentIntentViaBackend(paymentId: string) {
+  return requestJson<RentPaymentIntentSummary>(
+    `/v1/payments/${encodeURIComponent(paymentId)}/intent`,
+    {
+      method: 'POST',
+    },
+  );
+}
+
+export async function getRentPaymentStatusViaBackend(paymentId: string) {
+  return requestJson<RentPaymentStatusSummary>(
+    `/v1/payments/${encodeURIComponent(paymentId)}/status`,
+    {
+      method: 'GET',
+    },
+  );
+}
+
+export async function cancelRentPaymentIntentViaBackend(paymentId: string) {
+  return requestJson<RentPaymentStatusSummary>(
+    `/v1/payments/${encodeURIComponent(paymentId)}/cancel`,
+    {
       method: 'POST',
     },
   );

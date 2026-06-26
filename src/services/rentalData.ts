@@ -1,4 +1,5 @@
 import * as Crypto from 'expo-crypto';
+import { Linking } from 'react-native';
 import {
   collection,
   deleteDoc,
@@ -18,11 +19,13 @@ import { isBackendEnabled } from '@/src/config/env';
 import { requireFirestore } from '@/src/lib/firebase';
 import {
   completeSimulatedPaymentViaBackend,
+  createRentPaymentIntentViaBackend,
   createOwnerPropertyViaBackend,
   createOwnerUnitViaBackend,
   createTenantInviteViaBackend,
   deleteOwnerPropertyViaBackend,
   deleteOwnerUnitViaBackend,
+  getRentPaymentStatusViaBackend,
   mapBackendErrorToMessage,
   redeemTenantInviteViaBackend,
   updateOwnerPropertyViaBackend,
@@ -73,6 +76,36 @@ function normalizeNullableString(value: unknown) {
 
 function generatePaymentReference(prefix: string) {
   return `${prefix}-${Date.now().toString().slice(-8)}`;
+}
+
+function sanitizeReferencePart(value: string, fallback: string) {
+  const normalized = value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .toUpperCase();
+
+  return normalized.length > 0 ? normalized.slice(0, 6) : fallback;
+}
+
+function buildAtouPayReference(input: {
+  monthKey: string;
+  randomSuffix?: string;
+  unitId: string;
+  unitLabel?: string | null;
+}) {
+  const monthCodes = ['JAN', 'FEV', 'MAR', 'AVR', 'MAI', 'JUN', 'JUL', 'AOU', 'SEP', 'OCT', 'NOV', 'DEC'];
+  const match = /^(\d{4})-(\d{2})$/.exec(input.monthKey);
+  const period = match
+    ? `${monthCodes[Number.parseInt(match[2]!, 10) - 1] ?? 'PER'}${match[1]!.slice(2)}`
+    : sanitizeReferencePart(input.monthKey, 'PERIOD');
+  const unit = sanitizeReferencePart(input.unitLabel ?? input.unitId, 'UNIT');
+  const suffix = sanitizeReferencePart(
+    input.randomSuffix ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 4)}`,
+    'REF',
+  ).slice(0, 3);
+
+  return `ATP-${unit}-${period}-${suffix}`;
 }
 
 function resolveInviteGenerationFailure(error: unknown) {
@@ -178,6 +211,12 @@ function calculateZeroRentLedger(grossAmount: number) {
 
 export function mapOwnerRecordToUser(owner: OwnerRecord, propertyIds: string[]) {
   return {
+    bankilyDeepLinkTemplate: owner.bankilyDeepLinkTemplate ?? null,
+    bankilyIntegrationMode: owner.bankilyIntegrationMode ?? 'qr_or_code_manual',
+    bankilyMerchantCode: owner.bankilyMerchantCode ?? null,
+    bankilyPaymentMethodStatus: owner.bankilyPaymentMethodStatus ?? 'draft',
+    bankilyPhoneNumber: owner.bankilyPhoneNumber ?? null,
+    bankilyQrImageUrl: owner.bankilyQrImageUrl ?? null,
     email: '',
     fullName: owner.displayName,
     id: owner.id,
@@ -237,6 +276,13 @@ export function mapRentPaymentToUiPayment(record: RentPaymentRecord): PaymentRec
     amount: record.grossAmount,
     agencyFeeAmount: record.agencyFeeAmount,
     agencyId: record.agencyId ?? null,
+    atouPayReference:
+      record.atouPayReference ??
+      buildAtouPayReference({
+        monthKey: record.monthKey,
+        randomSuffix: record.id,
+        unitId: record.unitId,
+      }),
     commissionRate: record.commissionRate,
     dueDate: record.dueDate,
     grossAmount: record.grossAmount,
@@ -251,9 +297,12 @@ export function mapRentPaymentToUiPayment(record: RentPaymentRecord): PaymentRec
     provider: record.paymentMethod ?? undefined,
     receiptId: record.receiptId ?? undefined,
     referenceId:
-      record.providerReference && record.providerReference.trim().length > 0
-        ? record.providerReference
-        : generatePaymentReference('ATP'),
+      record.atouPayReference ??
+      buildAtouPayReference({
+        monthKey: record.monthKey,
+        randomSuffix: record.id,
+        unitId: record.unitId,
+      }),
     status: record.paymentStatus,
     rentAmount: record.rentAmount ?? record.grossAmount,
     tenantId: record.tenantId,
@@ -263,8 +312,30 @@ export function mapRentPaymentToUiPayment(record: RentPaymentRecord): PaymentRec
 }
 
 export function normalizeOwnerRecord(id: string, data: DocumentData): OwnerRecord {
+  const bankilyIntegrationMode =
+    data.bankilyIntegrationMode === 'not_configured' ||
+    data.bankilyIntegrationMode === 'qr_or_code_manual' ||
+    data.bankilyIntegrationMode === 'deep_link_unverified' ||
+    data.bankilyIntegrationMode === 'deep_link_confirmed' ||
+    data.bankilyIntegrationMode === 'moosyl_provider'
+      ? data.bankilyIntegrationMode
+      : 'qr_or_code_manual';
+
   return {
     agencyId: normalizeNullableString(data.agencyId),
+    bankilyDeepLinkTemplate: normalizeNullableString(data.bankilyDeepLinkTemplate),
+    bankilyIntegrationMode,
+    bankilyMerchantCode: normalizeNullableString(data.bankilyMerchantCode),
+    bankilyPaymentMethodStatus:
+      data.bankilyPaymentMethodStatus === 'draft' ||
+      data.bankilyPaymentMethodStatus === 'pending_verification' ||
+      data.bankilyPaymentMethodStatus === 'verified' ||
+      data.bankilyPaymentMethodStatus === 'rejected' ||
+      data.bankilyPaymentMethodStatus === 'disabled'
+        ? data.bankilyPaymentMethodStatus
+        : 'draft',
+    bankilyPhoneNumber: normalizeNullableString(data.bankilyPhoneNumber),
+    bankilyQrImageUrl: normalizeNullableString(data.bankilyQrImageUrl),
     createdAt: normalizeDateValue(data.createdAt),
     displayName:
       typeof data.displayName === 'string' && data.displayName.trim().length > 0
@@ -339,6 +410,10 @@ export function normalizeRentPaymentRecord(id: string, data: DocumentData): Rent
   return {
     agencyFeeAmount,
     agencyId: normalizeNullableString(data.agencyId),
+    atouPayReference:
+      typeof data.atouPayReference === 'string' && data.atouPayReference.trim().length > 0
+        ? data.atouPayReference
+        : undefined,
     commissionRate,
     createdAt: normalizeDateValue(data.createdAt),
     dueDate: typeof data.dueDate === 'string' ? data.dueDate : currentMonthDueDate(),
@@ -391,7 +466,11 @@ export function normalizeReceiptRecord(id: string, data: DocumentData): ReceiptR
     issuedAt: normalizeDateValue(data.issuedAt) ?? new Date().toISOString(),
     issuedBy: data.issuedBy === 'backend' ? data.issuedBy : undefined,
     issuanceSource:
-      data.issuanceSource === 'simulate-complete' ? data.issuanceSource : undefined,
+      data.issuanceSource === 'simulate-complete' ||
+      data.issuanceSource === 'provider-confirmed' ||
+      data.issuanceSource === 'manual-confirmed'
+        ? data.issuanceSource
+        : undefined,
     ownerDisplayName:
       typeof data.ownerDisplayName === 'string' ? data.ownerDisplayName : undefined,
     ownerEmail: typeof data.ownerEmail === 'string' ? data.ownerEmail : undefined,
@@ -1143,6 +1222,12 @@ export async function redeemTenantInvite(input: {
           ? ownerUserData.agencyId
           : null;
       const rentLedger = calculateZeroRentLedger(unitData.rentAmount);
+      const paymentMonthKey = currentMonthKey();
+      const atouPayReference = buildAtouPayReference({
+        monthKey: paymentMonthKey,
+        unitId: inviteData.unitId,
+        unitLabel: typeof unitData.label === 'string' ? unitData.label : null,
+      });
 
       claimedPropertyId = inviteData.propertyId;
       claimedUnitId = inviteData.unitId;
@@ -1179,11 +1264,12 @@ export async function redeemTenantInvite(input: {
         transaction.set(paymentRef, {
           agencyFeeAmount: rentLedger.agencyFeeAmount,
           agencyId,
+          atouPayReference,
           commissionRate: rentLedger.commissionRate,
           createdAt: serverTimestamp(),
           dueDate: currentMonthDueDate(),
           grossAmount: rentLedger.rentAmount,
-          monthKey: currentMonthKey(),
+          monthKey: paymentMonthKey,
           ownerId: inviteData.ownerId,
           ownerNetAmount: rentLedger.ownerNetAmount,
           ownerReceivableAmount: rentLedger.ownerReceivableAmount,
@@ -1230,6 +1316,26 @@ export async function submitSimulatedRentPayment(input: {
 }): Promise<PaymentAttemptResult> {
   if (isBackendEnabled) {
     try {
+      const intent = await createRentPaymentIntentViaBackend(input.paymentId);
+
+      if (intent.provider === 'moosyl') {
+        if (intent.checkoutUrl) {
+          await Linking.openURL(intent.checkoutUrl);
+        }
+
+        const status = await getRentPaymentStatusViaBackend(input.paymentId);
+        const confirmed = status.paymentStatus === 'paid' && status.receiptId;
+
+        return {
+          intent,
+          message: confirmed
+            ? 'Le paiement a été confirmé par le backend.'
+            : 'Paiement en cours. Le statut sera confirmé uniquement par le backend ou le webhook prestataire.',
+          ok: true,
+          title: confirmed ? 'Paiement confirmé' : 'Paiement en cours',
+        };
+      }
+
       const result = await completeSimulatedPaymentViaBackend({
         paymentId: input.paymentId,
         paymentMethod: input.provider,

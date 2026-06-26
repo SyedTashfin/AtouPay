@@ -1,0 +1,18 @@
+{
+  "event": "payment-updated",
+  "id": "moosyl-event-cancelled-1",
+  "data": {
+    "id": "moosyl-payment-cancelled-1",
+    "amount": 200000,
+    "currency": "MRU",
+    "status": "cancelled",
+    "referenceId": "bankily-ref-cancelled-884421",
+    "paymentRequestId": "mpr_test_cancelled_001",
+    "request": {
+      "id": "mpr_test_cancelled_001",
+      "transactionId": "moosyl-transaction-cancelled",
+      "totalAmount": 200000,
+      "currency": "MRU"
+    }
+  }
+}

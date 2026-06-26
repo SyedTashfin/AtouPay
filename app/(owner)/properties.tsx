@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -104,6 +104,7 @@ export default function OwnerPropertiesScreen() {
   const [editUnitLabel, setEditUnitLabel] = useState('');
   const [editUnitRent, setEditUnitRent] = useState('');
   const [editUnitNotes, setEditUnitNotes] = useState('');
+  const listRef = useRef<FlatList<Property>>(null);
 
   useEffect(() => {
     if (!selectedPropertyId && propertyRecords.length > 0) {
@@ -303,10 +304,49 @@ export default function OwnerPropertiesScreen() {
         setExistingUnitLabel('');
         setExistingUnitRent('');
         setExistingUnitNotes('');
+
+        if (result.unitId) {
+          setActiveFilter('vacant');
+          setGeneratedInvite(null);
+          setInviteTargetUnitId(result.unitId);
+          setFeedback({
+            description:
+              'La nouvelle unité est prête. Validez son invitation dans la liste des unités vacantes.',
+            title: 'Unité prête à inviter',
+            tone: 'success',
+          });
+        }
       }
     } finally {
       setActiveAction(null);
     }
+  };
+
+  const focusAddUnitForSameProperty = (property: Property) => {
+    if (!property.firestorePropertyId) {
+      setFeedback({
+        description: 'Ce logement n’est pas relié à un bien Firestore valide.',
+        title: 'Bien introuvable',
+        tone: 'error',
+      });
+      return;
+    }
+
+    setSelectedPropertyId(property.firestorePropertyId);
+    setExistingUnitLabel('');
+    setExistingUnitRent('');
+    setExistingUnitNotes('');
+    setGeneratedInvite(null);
+    setInviteTargetUnitId(null);
+    setActiveFilter('all');
+    setFeedback({
+      description: `Créez une nouvelle unité dans ${property.name}, puis générez l’invitation sur cette unité.`,
+      title: 'Ajouter un autre locataire',
+      tone: 'info',
+    });
+    setTimeout(() => {
+      listRef.current?.scrollToOffset({ animated: true, offset: 0 });
+    }, 50);
   };
 
   const beginEditUnit = (property: Property) => {
@@ -838,9 +878,17 @@ export default function OwnerPropertiesScreen() {
             ) : null}
           </View>
         ) : (
-          <Text style={styles.occupiedText}>
-            {copy('Cette unité est déjà occupée. Les paiements simulés seront visibles côté propriétaire et locataire.')}
-          </Text>
+          <View style={styles.occupiedBlock}>
+            <Text style={styles.occupiedText}>
+              {copy('Cette unité est déjà occupée. Pour rattacher un autre locataire au même bien, ajoutez une nouvelle unité puis générez son invitation.')}
+            </Text>
+            <PrimaryButton
+              accessibilityHint="Prépare le formulaire d’ajout d’unité sur le même bien"
+              label="Ajouter une unité pour un autre locataire"
+              onPress={() => focusAddUnitForSameProperty(item)}
+              variant="secondary"
+            />
+          </View>
         )}
       </View>
     );
@@ -849,6 +897,7 @@ export default function OwnerPropertiesScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <FlatList
+        ref={listRef}
         contentContainerStyle={styles.content}
         data={filteredProperties}
         keyExtractor={(item) => item.id}
@@ -932,7 +981,7 @@ export default function OwnerPropertiesScreen() {
 
             <View style={styles.section}>
               <SectionTitle
-                subtitle="Pour ajouter une chambre ou un appartement à un immeuble déjà enregistré"
+                subtitle="Un même bien peut contenir plusieurs unités, chacune avec sa propre invitation locataire"
                 title="Ajouter une unité à un bien existant"
               />
               <View style={styles.formCard}>
@@ -1231,6 +1280,9 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   inviteForm: {
+    gap: spacing.sm,
+  },
+  occupiedBlock: {
     gap: spacing.sm,
   },
   occupiedText: {

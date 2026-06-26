@@ -1,0 +1,18 @@
+{
+  "event": "payment-updated",
+  "id": "moosyl-event-amount-mismatch-1",
+  "data": {
+    "id": "moosyl-payment-amount-mismatch-1",
+    "amount": 199999,
+    "currency": "MRU",
+    "status": "completed",
+    "referenceId": "bankily-ref-amount-mismatch-884421",
+    "paymentRequestId": "mpr_test_amount_mismatch_001",
+    "request": {
+      "id": "mpr_test_amount_mismatch_001",
+      "transactionId": "moosyl-transaction-amount-mismatch",
+      "totalAmount": 199999,
+      "currency": "MRU"
+    }
+  }
+}

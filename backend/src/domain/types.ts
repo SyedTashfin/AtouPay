@@ -7,6 +7,33 @@ export type InviteType = 'code' | 'link';
 export type CommissionType = 'percentage';
 export type AgencyAdminBootstrapStatus = 'pending' | 'claimed' | 'revoked';
 export type PaymentStatus = 'cancelled' | 'disputed' | 'failed' | 'late' | 'paid' | 'pending';
+export type BankilyIntegrationMode =
+  | 'deep_link_confirmed'
+  | 'deep_link_unverified'
+  | 'moosyl_provider'
+  | 'not_configured'
+  | 'qr_or_code_manual';
+export type OwnerPaymentMethodStatus =
+  | 'disabled'
+  | 'draft'
+  | 'pending_verification'
+  | 'rejected'
+  | 'verified';
+export type ManualPaymentProofSubmittedMethod =
+  | 'bank_transfer'
+  | 'bankily'
+  | 'cash'
+  | 'cheque'
+  | 'masrvi'
+  | 'other'
+  | 'sedad';
+export type ManualPaymentProofRiskLevel = 'high' | 'low' | 'medium';
+export type ManualPaymentProofOwnerReviewStatus =
+  | 'agency_escalated'
+  | 'confirmed'
+  | 'disputed'
+  | 'rejected'
+  | 'waiting_owner_review';
 export type RecoveryContactPreference = 'email' | 'phone';
 export type SupportRequestCategory =
   | 'account_recovery'
@@ -15,6 +42,7 @@ export type SupportRequestCategory =
   | 'bug_or_outage'
   | 'general_help';
 export type SupportRequestStatus = 'in_progress' | 'resolved' | 'submitted';
+export type ManualPaymentProofStatus = 'confirmed' | 'disputed' | 'rejected' | 'submitted';
 export type NotificationType =
   | 'account_reactivated'
   | 'account_suspended'
@@ -29,6 +57,7 @@ export type NotificationType =
   | 'payment_completed'
   | 'payment_overdue'
   | 'payment_pending'
+  | 'payment_proof_reminder'
   | 'rent_due_reminder'
   | 'support_request_status_changed'
   | 'tenant_invite_created'
@@ -44,6 +73,7 @@ export type AuditEventType =
   | 'owner_invite_deleted'
   | 'owner_invite_revoked'
   | 'payment_completed'
+  | 'payment_method_updated'
   | 'support_request_created'
   | 'support_request_updated'
   | 'tenant_invite_created'
@@ -87,6 +117,15 @@ export interface OwnerDoc {
   userId: string;
   displayName: string;
   agencyId: string | null;
+  bankilyDeepLinkTemplate?: string | null;
+  bankilyIntegrationMode?: BankilyIntegrationMode;
+  bankilyMerchantCode?: string | null;
+  bankilyPaymentMethodReviewedAt?: string | null;
+  bankilyPaymentMethodReviewedByUserId?: string | null;
+  bankilyPaymentMethodReviewNote?: string | null;
+  bankilyPaymentMethodStatus?: OwnerPaymentMethodStatus;
+  bankilyPhoneNumber?: string | null;
+  bankilyQrImageUrl?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -203,6 +242,7 @@ export interface RentPaymentDoc {
   tenantId: string;
   ownerId: string;
   agencyId: string | null;
+  atouPayReference?: string;
   propertyId: string;
   unitId: string;
   dueDate: string;
@@ -236,7 +276,7 @@ export interface ReceiptDoc {
   id: string;
   issuedAt: string;
   issuedBy: 'backend';
-  issuanceSource: 'simulate-complete';
+  issuanceSource: 'manual-confirmed' | 'provider-confirmed' | 'simulate-complete';
   ownerDisplayName: string;
   ownerEmail: string;
   ownerId: string;
@@ -245,6 +285,9 @@ export interface ReceiptDoc {
   paymentId: string;
   paymentMethod: string;
   paymentStatus: PaymentStatus;
+  provider?: string;
+  providerConfirmationMessage?: string;
+  providerReference?: string;
   propertyId: string;
   propertyLabel: string;
   qrVerificationToken: string;
@@ -258,20 +301,62 @@ export interface ReceiptDoc {
   verificationUrl: string;
 }
 
+export interface ManualPaymentProofCheckResultDoc {
+  amountMatches: boolean;
+  currencyMatches: boolean;
+  dateLooksValid: boolean;
+  hasImageProof: boolean;
+  referenceMatches: boolean;
+  riskLevel: ManualPaymentProofRiskLevel;
+  warnings: string[];
+}
+
 export interface SupportRequestDoc {
   agencyId: string | null;
+  agencyEscalationAvailable?: boolean | null;
+  agencyEscalationAvailableAt?: string | null;
   category: SupportRequestCategory;
   contactEmail: string;
   createdAt: string;
   description: string;
+  expectedAmount?: number | null;
+  expectedAtouPayReference?: string | null;
+  expectedCurrency?: 'MRU' | null;
+  manualPaymentMethod?: string | null;
+  manualProofReviewNote?: string | null;
+  manualProofReviewedAt?: string | null;
+  manualProofReviewedByUserId?: string | null;
+  manualProofStatus?: ManualPaymentProofStatus | null;
+  ownerLastReminderAt?: string | null;
+  ownerReminderCount?: number | null;
+  ownerReviewRequestedAt?: string | null;
+  ownerReviewStatus?: ManualPaymentProofOwnerReviewStatus | null;
   paymentId: string | null;
   phoneNumber: string | null;
+  proofCheckResult?: ManualPaymentProofCheckResultDoc | null;
+  proofImageContentType?: string | null;
+  proofImageFileName?: string | null;
+  proofImageOriginalFileName?: string | null;
+  proofImageSizeBytes?: number | null;
+  proofImageStoragePath?: string | null;
+  proofImageUrl?: string | null;
+  proofNote?: string | null;
+  proofSubmittedAt?: string | null;
+  proofTransactionReference?: string | null;
   recoveryContactPreference: RecoveryContactPreference | null;
   requestorDisplayName: string;
   requestorRole: Role | 'guest';
   resolutionNote: string | null;
   resolvedAt: string | null;
   status: SupportRequestStatus;
+  submittedAmount?: number | null;
+  submittedCurrency?: 'MRU' | null;
+  submittedNote?: string | null;
+  submittedPaymentDate?: string | null;
+  submittedPaymentMethod?: ManualPaymentProofSubmittedMethod | null;
+  submittedPaymentReference?: string | null;
+  submittedPaymentTime?: string | null;
+  submittedTransactionReference?: string | null;
   subject: string;
   updatedAt: string;
   userId: string | null;

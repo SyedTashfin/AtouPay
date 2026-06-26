@@ -21,6 +21,13 @@ import type {
   OwnerBillingInvoice,
   OwnerBillingPayment,
 } from '../billing/types.js';
+import type {
+  PaymentAttempt,
+  PaymentIntent,
+  PaymentReconciliationRecord,
+  ProviderTransaction,
+  ProviderWebhookEvent,
+} from '../payments/types.js';
 
 export interface TransactionContext {
   getAgencyAdminBootstrap(bootstrapId: string): Promise<AgencyAdminBootstrapDoc | null>;
@@ -32,7 +39,11 @@ export interface TransactionContext {
   getOwnerBillingAccount(ownerId: string): Promise<OwnerBillingAccount | null>;
   getOwnerBillingInvoice(invoiceId: string): Promise<OwnerBillingInvoice | null>;
   getPayment(paymentId: string): Promise<RentPaymentDoc | null>;
+  getPaymentAttempt(attemptId: string): Promise<PaymentAttempt | null>;
+  getPaymentIntent(intentId: string): Promise<PaymentIntent | null>;
+  getPaymentWebhookEvent(eventId: string): Promise<ProviderWebhookEvent | null>;
   getProperty(propertyId: string): Promise<PropertyDoc | null>;
+  getProviderTransaction(providerTransactionId: string): Promise<ProviderTransaction | null>;
   getReceipt(receiptId: string): Promise<ReceiptDoc | null>;
   getSupportRequest(requestId: string): Promise<SupportRequestDoc | null>;
   getTenant(tenantId: string): Promise<TenantDoc | null>;
@@ -40,7 +51,10 @@ export interface TransactionContext {
   getUnit(unitId: string): Promise<UnitDoc | null>;
   getUserTermsAcceptance(uid: string): Promise<UserTermsAcceptanceDoc | null>;
   getUser(uid: string): Promise<UserDoc | null>;
+  findPaymentIntentByProviderTransactionId(providerTransactionId: string): Promise<{ doc: PaymentIntent; id: string } | null>;
+  findPaymentWebhookEventByIdempotencyKey(idempotencyKey: string): Promise<{ doc: ProviderWebhookEvent; id: string } | null>;
   listOwnerBillingInvoicesByOwner(ownerId: string): Promise<Array<{ doc: OwnerBillingInvoice; id: string }>>;
+  listPaymentIntentsByPayment(paymentId: string): Promise<Array<{ doc: PaymentIntent; id: string }>>;
   listPaymentsByUnit(unitId: string): Promise<Array<{ doc: RentPaymentDoc; id: string }>>;
   listUnitsByProperty(propertyId: string): Promise<Array<{ doc: UnitDoc; id: string }>>;
   setAgency(agencyId: string, agency: AgencyDoc): void;
@@ -52,8 +66,13 @@ export interface TransactionContext {
   setOwnerAccessInvite(inviteId: string, invite: OwnerAccessInviteDoc): void;
   setInvite(inviteId: string, invite: TenantInviteDoc): void;
   setOwner(ownerId: string, owner: OwnerDoc): void;
+  setPaymentAttempt(attemptId: string, attempt: PaymentAttempt): void;
+  setPaymentIntent(intentId: string, intent: PaymentIntent): void;
+  setPaymentReconciliationRecord(recordId: string, record: PaymentReconciliationRecord): void;
+  setPaymentWebhookEvent(eventId: string, event: ProviderWebhookEvent): void;
   setPayment(paymentId: string, payment: RentPaymentDoc): void;
   setProperty(propertyId: string, property: PropertyDoc): void;
+  setProviderTransaction(providerTransactionId: string, transactionDoc: ProviderTransaction): void;
   setReceipt(receiptId: string, receipt: ReceiptDoc): void;
   setSupportRequest(requestId: string, request: SupportRequestDoc): void;
   setTenant(tenantId: string, tenant: TenantDoc): void;
@@ -69,9 +88,14 @@ export interface TransactionContext {
   updateOwnerBillingAccount(ownerId: string, patch: Partial<OwnerBillingAccount>): void;
   updateOwnerBillingInvoice(invoiceId: string, patch: Partial<OwnerBillingInvoice>): void;
   updateInvite(inviteId: string, patch: Partial<TenantInviteDoc>): void;
+  updatePaymentAttempt(attemptId: string, patch: Partial<PaymentAttempt>): void;
+  updatePaymentIntent(intentId: string, patch: Partial<PaymentIntent>): void;
+  updatePaymentWebhookEvent(eventId: string, patch: Partial<ProviderWebhookEvent>): void;
   setAuditLog(auditLogId: string, auditLog: AuditLogDoc): void;
   setNotification(notificationId: string, notification: NotificationDoc): void;
+  updateProviderTransaction(providerTransactionId: string, patch: Partial<ProviderTransaction>): void;
   updateNotification(notificationId: string, patch: Partial<NotificationDoc>): void;
+  updateOwner(ownerId: string, patch: Partial<OwnerDoc>): void;
   updatePayment(paymentId: string, patch: Partial<RentPaymentDoc>): void;
   updateProperty(propertyId: string, patch: Partial<PropertyDoc>): void;
   updateSupportRequest(requestId: string, patch: Partial<SupportRequestDoc>): void;
@@ -89,7 +113,10 @@ export interface DataRepository {
   getOwner(ownerId: string): Promise<OwnerDoc | null>;
   getOwnerBillingAccount(ownerId: string): Promise<OwnerBillingAccount | null>;
   getPayment(paymentId: string): Promise<RentPaymentDoc | null>;
+  getPaymentIntent(intentId: string): Promise<PaymentIntent | null>;
+  getPaymentWebhookEvent(eventId: string): Promise<ProviderWebhookEvent | null>;
   getProperty(propertyId: string): Promise<PropertyDoc | null>;
+  getProviderTransaction(providerTransactionId: string): Promise<ProviderTransaction | null>;
   getReceipt(receiptId: string): Promise<ReceiptDoc | null>;
   getSupportRequest(requestId: string): Promise<SupportRequestDoc | null>;
   getTenant(tenantId: string): Promise<TenantDoc | null>;
@@ -102,10 +129,14 @@ export interface DataRepository {
   listNotificationsByUser(userId: string): Promise<Array<{ doc: NotificationDoc; id: string }>>;
   listOwnerBillingAccountsByAgency(agencyId: string): Promise<Array<{ doc: OwnerBillingAccount; id: string }>>;
   listOwnerBillingInvoicesByOwner(ownerId: string): Promise<Array<{ doc: OwnerBillingInvoice; id: string }>>;
+  findPaymentIntentByProviderTransactionId(providerTransactionId: string): Promise<{ doc: PaymentIntent; id: string } | null>;
+  findPaymentWebhookEventByIdempotencyKey(idempotencyKey: string): Promise<{ doc: ProviderWebhookEvent; id: string } | null>;
+  listPaymentIntentsByPayment(paymentId: string): Promise<Array<{ doc: PaymentIntent; id: string }>>;
   listPaymentsByAgency(agencyId: string): Promise<Array<{ doc: RentPaymentDoc; id: string }>>;
   listPaymentsByOwner(ownerId: string): Promise<Array<{ doc: RentPaymentDoc; id: string }>>;
   listPropertiesByOwner(ownerId: string): Promise<Array<{ doc: PropertyDoc; id: string }>>;
   listSupportRequestsByAgency(agencyId: string): Promise<Array<{ doc: SupportRequestDoc; id: string }>>;
+  listSupportRequests(): Promise<Array<{ doc: SupportRequestDoc; id: string }>>;
   listSupportRequestsByUser(userId: string): Promise<Array<{ doc: SupportRequestDoc; id: string }>>;
   listTenantsByOwner(ownerId: string): Promise<Array<{ doc: TenantDoc; id: string }>>;
   listUnitsByOwner(ownerId: string): Promise<Array<{ doc: UnitDoc; id: string }>>;

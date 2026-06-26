@@ -42,6 +42,8 @@ export function PaymentReceiptCard({
   const { copy, isRtl } = useI18n();
   const rentAmount = payment.rentAmount ?? payment.grossAmount ?? payment.amount;
   const simulated = receipt ? isReceiptSimulated(receipt) : false;
+  const providerConfirmed = receipt?.issuanceSource === 'provider-confirmed';
+  const manualConfirmed = receipt?.issuanceSource === 'manual-confirmed';
 
   return (
     <View
@@ -55,7 +57,11 @@ export function PaymentReceiptCard({
           {copy(
             simulated
               ? 'Peut servir de justificatif selon les informations enregistrées dans le système. Aucun débit réel n’est confirmé pour ce paiement simulé.'
-              : 'Peut servir de justificatif selon les informations enregistrées dans le système.',
+              : providerConfirmed
+                ? 'Paiement confirmé par le prestataire de paiement.'
+                : manualConfirmed
+                  ? 'Paiement déclaré par le locataire et confirmé par le propriétaire.'
+                  : 'Peut servir de justificatif selon les informations enregistrées dans le système.',
           )}
         </Text>
       </View>
@@ -66,6 +72,12 @@ export function PaymentReceiptCard({
       <ReceiptRow label="Bien" value={propertyName} />
       <ReceiptRow label="Opérateur" value={payment.provider ?? 'n/a'} />
       <ReceiptRow label="Référence" value={payment.referenceId} />
+      {providerConfirmed && receipt?.providerReference ? (
+        <ReceiptRow label="Référence prestataire" value={receipt.providerReference} />
+      ) : null}
+      {manualConfirmed && receipt?.providerReference ? (
+        <ReceiptRow label="Référence déclarée" value={receipt.providerReference} />
+      ) : null}
       {receipt?.receiptNumber ? <ReceiptRow label="Reçu" value={receipt.receiptNumber} /> : null}
       {receipt?.agencyDisplayName ? <ReceiptRow label="Agence" value={receipt.agencyDisplayName} /> : null}
       <ReceiptRow

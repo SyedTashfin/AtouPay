@@ -15,7 +15,8 @@
     "deploy:cloud-run": "tsx scripts/deploy-cloud-run.ts",
     "agency-admin:bootstrap": "tsx scripts/bootstrap-agency-admin.ts",
     "owner-access:invite": "tsx scripts/create-owner-access-invite.ts",
-    "client-demo:seed": "tsx scripts/seed-client-demo.ts"
+    "client-demo:seed": "tsx scripts/seed-client-demo.ts",
+    "webhook:replay:moosyl": "tsx scripts/replay-moosyl-webhook.ts"
   },
   "dependencies": {
     "@fastify/type-provider-typebox": "6.1.0",

@@ -6,6 +6,27 @@ export type PaymentStatus = 'cancelled' | 'disputed' | 'failed' | 'late' | 'paid
 export type PaymentStatusFilter = 'all' | PaymentStatus;
 export type OccupancyStatus = 'occupied' | 'vacant' | 'invited';
 export type PaymentProvider = 'Bankily' | 'Sedad' | 'Masrvi' | 'Carte bancaire';
+export type BankilyIntegrationMode =
+  | 'deep_link_confirmed'
+  | 'deep_link_unverified'
+  | 'moosyl_provider'
+  | 'not_configured'
+  | 'qr_or_code_manual';
+export type OwnerPaymentMethodStatus =
+  | 'disabled'
+  | 'draft'
+  | 'pending_verification'
+  | 'rejected'
+  | 'verified';
+export type ManualPaymentProofRiskLevel = 'high' | 'low' | 'medium';
+export type ManualPaymentProofSubmittedMethod =
+  | 'bank_transfer'
+  | 'bankily'
+  | 'cash'
+  | 'cheque'
+  | 'masrvi'
+  | 'other'
+  | 'sedad';
 
 export type UserStatus = 'active' | 'pending_owner_access' | 'suspended';
 export type TenantStatus = 'active' | 'suspended';
@@ -20,6 +41,7 @@ export type SupportRequestCategory =
   | 'bug_or_outage'
   | 'general_help';
 export type SupportRequestStatus = 'submitted' | 'in_progress' | 'resolved';
+export type ManualPaymentProofStatus = 'submitted' | 'confirmed' | 'rejected' | 'disputed';
 export type DashboardPeriod = 'all' | 'last_month' | 'this_month';
 export type NotificationType =
   | 'account_reactivated'
@@ -114,6 +136,12 @@ export interface FirebaseUserProfileRecord {
 
 export interface OwnerRecord {
   agencyId?: string | null;
+  bankilyDeepLinkTemplate?: string | null;
+  bankilyIntegrationMode?: BankilyIntegrationMode;
+  bankilyMerchantCode?: string | null;
+  bankilyPaymentMethodStatus?: OwnerPaymentMethodStatus;
+  bankilyPhoneNumber?: string | null;
+  bankilyQrImageUrl?: string | null;
   createdAt?: string;
   displayName: string;
   id: string;
@@ -214,6 +242,7 @@ export interface RentPaymentRecord {
   // agencyFeeAmount at 0, with ownerNetAmount equal to rentAmount.
   agencyFeeAmount: number;
   agencyId?: string | null;
+  atouPayReference?: string;
   commissionRate: number;
   createdAt?: string;
   dueDate: string;
@@ -247,7 +276,7 @@ export interface ReceiptRecord {
   id: string;
   issuedAt: string;
   issuedBy?: 'backend';
-  issuanceSource?: 'simulate-complete';
+  issuanceSource?: 'manual-confirmed' | 'provider-confirmed' | 'simulate-complete';
   ownerDisplayName?: string;
   ownerEmail?: string;
   ownerId: string;
@@ -256,6 +285,9 @@ export interface ReceiptRecord {
   paymentId: string;
   paymentMethod?: string;
   paymentStatus?: PaymentStatus;
+  provider?: string;
+  providerConfirmationMessage?: string;
+  providerReference?: string;
   propertyId?: string;
   propertyLabel?: string;
   qrVerificationToken: string;
@@ -302,8 +334,44 @@ export interface InviteRedemptionResult extends MutationResult {
 }
 
 export interface PaymentAttemptResult extends MutationResult {
+  intent?: RentPaymentIntentSummary;
   payment?: PaymentRecord;
   receipt?: ReceiptRecord;
+}
+
+export type BackendPaymentProviderName = 'simulated' | 'moosyl';
+
+export type RentPaymentProviderStatus =
+  | 'requires_payment'
+  | 'processing'
+  | 'paid'
+  | 'failed'
+  | 'cancelled'
+  | 'disputed'
+  | 'refunded';
+
+export interface RentPaymentIntentSummary {
+  amount: number;
+  checkoutUrl?: string;
+  currency: 'MRU';
+  intentId: string;
+  paymentId: string;
+  provider: BackendPaymentProviderName;
+  publishableKey?: string;
+  status: RentPaymentProviderStatus;
+  transactionId?: string;
+}
+
+export interface RentPaymentStatusSummary {
+  amount: number;
+  currency: 'MRU';
+  intentId: string | null;
+  paymentId: string;
+  paymentStatus: PaymentStatus;
+  provider: BackendPaymentProviderName | null;
+  providerReference?: string | null;
+  providerStatus: RentPaymentProviderStatus | null;
+  receiptId: string | null;
 }
 
 export interface TenantUser {
@@ -320,6 +388,12 @@ export interface TenantUser {
 }
 
 export interface OwnerUser {
+  bankilyDeepLinkTemplate?: string | null;
+  bankilyIntegrationMode?: BankilyIntegrationMode;
+  bankilyMerchantCode?: string | null;
+  bankilyPaymentMethodStatus?: OwnerPaymentMethodStatus;
+  bankilyPhoneNumber?: string | null;
+  bankilyQrImageUrl?: string | null;
   email: string;
   fullName: string;
   id: string;
@@ -370,6 +444,7 @@ export interface PaymentRecord {
   // active fee model.
   agencyFeeAmount?: number;
   agencyId?: string | null;
+  atouPayReference?: string;
   commissionRate?: number;
   dueDate: string;
   grossAmount?: number;
@@ -526,19 +601,59 @@ export interface ProfileContactState {
 
 export interface SupportRequestRecord {
   agencyId?: string | null;
+  agencyEscalationAvailable?: boolean | null;
+  agencyEscalationAvailableAt?: string | null;
   category: SupportRequestCategory;
   contactEmail: string;
   createdAt: string;
   description: string;
+  expectedAmount?: number | null;
+  expectedAtouPayReference?: string | null;
+  expectedCurrency?: 'MRU' | null;
   id: string;
+  manualPaymentMethod?: PaymentProvider | string | null;
+  manualProofReviewNote?: string | null;
+  manualProofReviewedAt?: string | null;
+  manualProofReviewedByUserId?: string | null;
+  manualProofStatus?: ManualPaymentProofStatus | null;
+  ownerLastReminderAt?: string | null;
+  ownerReminderCount?: number | null;
+  ownerReviewRequestedAt?: string | null;
+  ownerReviewStatus?: string | null;
   paymentId?: string | null;
   phoneNumber?: string | null;
+  proofCheckResult?: {
+    amountMatches: boolean;
+    currencyMatches: boolean;
+    dateLooksValid: boolean;
+    hasImageProof: boolean;
+    referenceMatches: boolean;
+    riskLevel: ManualPaymentProofRiskLevel;
+    warnings: string[];
+  } | null;
+  proofImageContentType?: string | null;
+  proofImageFileName?: string | null;
+  proofImageOriginalFileName?: string | null;
+  proofImageSizeBytes?: number | null;
+  proofImageStoragePath?: string | null;
+  proofImageUrl?: string | null;
+  proofNote?: string | null;
+  proofSubmittedAt?: string | null;
+  proofTransactionReference?: string | null;
   recoveryContactPreference?: RecoveryContactPreference | null;
   requestorDisplayName: string;
   requestorRole: Role | 'guest';
   resolutionNote?: string | null;
   resolvedAt?: string | null;
   status: SupportRequestStatus;
+  submittedAmount?: number | null;
+  submittedCurrency?: 'MRU' | null;
+  submittedNote?: string | null;
+  submittedPaymentDate?: string | null;
+  submittedPaymentMethod?: ManualPaymentProofSubmittedMethod | null;
+  submittedPaymentReference?: string | null;
+  submittedPaymentTime?: string | null;
+  submittedTransactionReference?: string | null;
   subject: string;
   updatedAt: string;
   userId?: string | null;
@@ -546,6 +661,7 @@ export interface SupportRequestRecord {
 
 export interface AgencyOwnerSummary {
   agencyId?: string | null;
+  bankilyPaymentMethodStatus?: OwnerPaymentMethodStatus;
   createdAt: string;
   displayName: string;
   email: string;
@@ -557,6 +673,7 @@ export interface AgencyOwnerSummary {
 
 export interface AgencyUserSummary {
   agencyId?: string | null;
+  bankilyPaymentMethodStatus?: OwnerPaymentMethodStatus;
   createdAt: string;
   displayName: string;
   email: string;

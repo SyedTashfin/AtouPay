@@ -33,6 +33,10 @@ export const ownerUser: OwnerUser = {
   initials: 'SM',
   phone: '+222 22 17 30 44',
   email: 'salem.mahmoud@atoupay.demo',
+  bankilyIntegrationMode: 'qr_or_code_manual',
+  bankilyMerchantCode: 'ATOU-SALEM-DEMO',
+  bankilyPaymentMethodStatus: 'verified',
+  bankilyPhoneNumber: '+222 22 17 30 44',
   propertyIds: ['property-tevragh', 'property-ksar', 'property-saada'],
 };
 
@@ -195,4 +199,3 @@ export const payments: PaymentRecord[] = [
     referenceId: 'MSR-260202-331',
   },
 ];
-

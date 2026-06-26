@@ -1,3 +1,5 @@
+import { Readable } from 'node:stream';
+
 import Fastify from 'fastify';
 import { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import type { FastifyBaseLogger } from 'fastify';
@@ -13,6 +15,7 @@ import { v1Routes } from './routes/v1.js';
 import { BackendService } from './services/backend-service.js';
 import { createInviteEmailService } from './services/email-service.js';
 import { ownerBillingRoutes } from './billing/ownerBillingRoutes.js';
+import { paymentRoutes } from './payments/paymentRoutes.js';
 
 export interface BuildAppOptions {
   authVerifier?: AuthVerifier;
@@ -63,6 +66,23 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.decorate('config', config);
   app.decorate('services', services);
   app.decorateRequest('auth', null);
+  app.decorateRequest('rawBody', undefined);
+  app.addHook('preParsing', async (request, _reply, payload) => {
+    if (request.method !== 'POST' || request.url.split('?')[0] !== '/v1/webhooks/moosyl') {
+      return payload;
+    }
+
+    const chunks: Buffer[] = [];
+
+    for await (const chunk of payload) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+
+    const rawBody = Buffer.concat(chunks);
+    request.rawBody = rawBody;
+
+    return Readable.from(rawBody);
+  });
   app.decorate('authenticate', async function authenticate(request) {
     const token = parseBearerToken(request.headers.authorization);
 
@@ -171,6 +191,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(healthRoutes);
   await app.register(v1Routes);
   await app.register(ownerBillingRoutes);
+  await app.register(paymentRoutes);
 
   return app;
 }

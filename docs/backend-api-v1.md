@@ -8,13 +8,17 @@ This document defines the first backend slice to introduce on top of the current
 - the mobile app sends a Firebase ID token in `Authorization: Bearer <token>`
 - the backend verifies the token with Firebase Admin SDK
 - Firestore remains the primary data store
-- payments are still simulated
+- tenant rent payments use a provider-agnostic backend payment module
+- `PAYMENT_PROVIDER=simulated` remains the default provider
+- `PAYMENT_PROVIDER=moosyl` enables Moosyl test/sandbox rent payment intents when required backend env vars are present
+- `PAYMENT_LIVE_MODE=false` is the default, and production blocks real-provider calls while live mode is false
 - tenants pay rent only
 - ATouPay charges no tenant fee
 - rent payments are not commission-split
 - owners pay a separate 10 EUR account access fee every 6 weeks
 - owner account fees are separate from rent payments, rent receipts, and tenant screens
-- real owner-fee payment provider integration is not enabled yet; current owner billing payment actions are simulated or manually recorded by an agency admin
+- real owner-fee payment provider integration is not enabled; current owner billing payment actions are simulated or manually recorded by an agency admin
+- rent payment receipts are generated once after simulated completion or backend-confirmed provider completion
 
 ## Common API Conventions
 
@@ -261,11 +265,83 @@ Claims an invite and attaches the tenant to the referenced unit.
 - `tenant_already_attached`
 - `forbidden_role`
 
-## 6. Simulated Payment Settlement
+## 6. Tenant Rent Payment Intents
+
+### `POST /v1/payments/{paymentId}/intent`
+
+Creates or reuses an active backend-owned rent payment intent.
+
+#### Rules
+
+- caller must be the tenant attached to the rent payment
+- owners and agency admins cannot create tenant payment intents
+- payment must be payable
+- tenant total equals rent amount
+- `tenantFeeAmount = 0`
+- `platformRentFeeAmount = 0`
+- `agencyFeeAmount = 0`
+- `commissionRate = 0`
+- `ownerNetAmount = rentAmount`
+- `ownerReceivableAmount = rentAmount`
+- owner access fee is never included
+- frontend success/cancel callbacks never mark rent paid by themselves
+
+#### Response
+
+```json
+{
+  "ok": true,
+  "data": {
+    "paymentId": "payment-id",
+    "intentId": "intent-id",
+    "provider": "moosyl",
+    "status": "processing",
+    "amount": 200000,
+    "currency": "MRU",
+    "transactionId": "provider-transaction-id",
+    "checkoutUrl": "https://checkout.example/optional",
+    "publishableKey": "pk_test_placeholder"
+  }
+}
+```
+
+`publishableKey` is safe to return when needed. Secret keys are never returned.
+
+### `GET /v1/payments/{paymentId}/status`
+
+Tenant, owner, or agency-admin scoped read. Returns rent payment state, provider state, receipt ID if available, and safe provider reference only.
+
+### `POST /v1/payments/{paymentId}/cancel`
+
+Tenant only. Cancels active non-paid intents only. It does not delete payment records and does not affect paid rent payments.
+
+### `POST /v1/webhooks/moosyl`
+
+Public webhook endpoint for Moosyl tenant rent payment callbacks.
+
+#### Rules
+
+- verify `x-webhook-signature` against the raw request body using `MOOSYL_WEBHOOK_SECRET`
+- read event type from `x-webhook-event`
+- store every webhook attempt in `paymentWebhookEvents`
+- handle duplicate paid callbacks idempotently
+- ignore unknown event types safely
+- validate amount and currency before marking rent paid
+- create exactly one rent receipt after paid provider confirmation
+- do not create receipts for failed or cancelled callbacks
+
+Known events:
+
+- `payment-request-created`
+- `payment-request-updated`
+- `payment-created`
+- `payment-updated`
+
+## 7. Simulated Payment Settlement
 
 ### `POST /v1/payments/{paymentId}/simulate-complete`
 
-Marks a rent payment as paid and creates a receipt.
+Marks a rent payment as paid and creates a receipt through the simulated provider path.
 
 #### Request body
 
@@ -281,6 +357,7 @@ Marks a rent payment as paid and creates a receipt.
 - payment must currently be `pending` or `late`
 - no real charge is executed
 - response and stored metadata must clearly indicate simulation
+- production simulated completion is blocked where configured
 
 #### Firestore side effects
 
@@ -305,7 +382,181 @@ Marks a rent payment as paid and creates a receipt.
 }
 ```
 
-## 7. Operational Read And Control Endpoints
+### `POST /v1/payments/{paymentId}/manual-confirm`
+
+Confirms a tenant-declared manual payment, such as Bankily QR/code payment, after owner or agency review.
+
+#### Request body
+
+```json
+{
+  "paymentMethod": "Bankily",
+  "providerReference": "BANKILY-DECLARED-REFERENCE",
+  "note": "Confirmed from owner Bankily history."
+}
+```
+
+#### Rules
+
+- caller must be the payment owner or an agency admin scoped to the payment agency
+- tenants cannot confirm their own manual payment declarations
+- payment must currently be `pending` or `late`, unless it is already paid with an existing receipt
+- tenant proof/reference submission alone does not call this endpoint and does not create a receipt
+- Bankily app return alone must never mark rent paid
+- no tenant fee, platform rent fee, owner access fee, or commission is added
+- receipt wording must identify owner/agency confirmation, not provider confirmation
+
+#### Receipt wording
+
+Manual Bankily confirmation receipts use:
+
+```text
+Paiement déclaré par le locataire et confirmé par le propriétaire.
+```
+
+They must not be labelled as Bankily/API-confirmed unless a verified Bankily or provider confirmation exists.
+
+### `POST /v1/payments/{paymentId}/manual-proof`
+
+Tenant-only endpoint for submitting supporting evidence for a Bankily/manual direct payment.
+
+#### Request body
+
+```json
+{
+  "paymentMethod": "Bankily",
+  "providerReference": "BANKILY-DECLARED-REFERENCE",
+  "note": "Tenant-entered note",
+  "submittedPaymentReference": "ATP-A1-AVR26-8K4",
+  "submittedTransactionReference": "BANKILY-DECLARED-REFERENCE",
+  "submittedAmount": 200000,
+  "submittedCurrency": "MRU",
+  "submittedPaymentDate": "2026-04-22",
+  "submittedPaymentTime": "14:35",
+  "submittedPaymentMethod": "bankily",
+  "proofImageStoragePath": "paymentProofs/agency-id/payment-id/tenant-id/proof.jpg",
+  "proofImageFileName": "proof.jpg",
+  "proofImageOriginalFileName": "bankily-proof.jpg",
+  "proofImageContentType": "image/jpeg",
+  "proofImageSizeBytes": 256000
+}
+```
+
+#### Rules
+
+- caller must be the tenant assigned to the payment
+- payment must be `pending` or `late`
+- `submittedPaymentReference`, `submittedAmount`, `submittedCurrency`, and `submittedPaymentDate` are required
+- at least one of `submittedTransactionReference`, note, or proof image metadata is required
+- `submittedPaymentReference` is checked against immutable `rentPayments/{paymentId}.atouPayReference`
+- amount, currency, and date are checked and stored in `proofCheckResult`
+- high-risk proof can be submitted for review but cannot be owner-confirmed
+- current manual proof support is for Bankily direct/manual mode
+- owner Bankily/direct payment method must be agency-verified before tenant proof submission is accepted
+- `moosyl_provider` and `not_configured` owner Bankily modes reject manual proof
+- `deep_link_confirmed` requires backend/provider verification, not manual proof
+- `deep_link_unverified` proof is blocked in production
+- proof submission creates a support/proof record only
+- proof submission does not mark rent paid
+- proof submission does not create a receipt
+- screenshot/photo proof is supporting evidence only and is not provider verification
+- public proof image URLs are rejected; the app must submit a scoped Firebase Storage path
+- proof image path must match `paymentProofs/{agencyId}/{paymentId}/{tenantId}/{fileName}`
+- proof image content type must be `image/jpeg`, `image/png`, or `image/webp`
+- proof image size must be 5 MB or less
+
+Stored proof metadata includes:
+
+- `expectedAtouPayReference`
+- `expectedAmount`
+- `submittedPaymentReference`
+- `submittedTransactionReference`
+- `submittedAmount`
+- `submittedCurrency`
+- `submittedPaymentDate`
+- `submittedPaymentTime`
+- `submittedPaymentMethod`
+- `proofCheckResult`
+- `ownerReviewStatus`
+- `agencyEscalationAvailableAt`
+- `proofImageStoragePath`
+- `proofImageFileName`
+- `proofImageOriginalFileName`
+- `proofImageContentType`
+- `proofImageSizeBytes`
+- `proofSubmittedAt`
+
+### `POST /v1/support/requests/{requestId}/manual-proof/review`
+
+Owner or agency-admin endpoint for reviewing a manual payment proof after viewing the submitted reference and optional screenshot.
+
+#### Request body
+
+```json
+{
+  "decision": "confirmed",
+  "note": "Confirmed against owner Bankily history.",
+  "overrideReason": "Required for agency confirmation of high-risk proof.",
+  "settlementNote": "Optional internal settlement note."
+}
+```
+
+Allowed `decision` values:
+
+- `confirmed`: confirms the manual payment and generates the rent receipt exactly once
+- `rejected`: rejects the proof and does not create a receipt
+- `disputed`: keeps the proof under review and does not create a receipt
+
+Owner confirmation is allowed only for normal-risk proof for the owner’s unit. Agency confirmation is allowed when escalation is available, the owner is inactive/suspended, the proof is disputed, or high-risk proof includes an override reason.
+
+Owner-confirmed receipts say:
+
+```text
+Paiement déclaré par le locataire et confirmé par le propriétaire.
+```
+
+Agency-confirmed receipts say:
+
+```text
+Paiement déclaré par le locataire et confirmé par l’agence après vérification.
+```
+
+Rejected or disputed proofs must leave the rent payment pending/late and must not create receipts.
+
+### `POST /v1/tasks/manual-proof-reminders/run`
+
+Internal task endpoint for owner review reminders.
+
+Security:
+
+- requires `x-internal-task-secret` matching backend `INTERNAL_TASK_SECRET`
+- not publicly callable without the internal secret
+
+Behavior:
+
+- scans manual proofs waiting for owner review
+- sends owner reminder notifications after `24` hours, up to `3` reminders
+- marks agency escalation available after `48` hours
+- does not mark rent paid
+- does not create receipts
+- writes audit logs for reminder/escalation activity
+
+### `POST /v1/agency/owners/{ownerId}/payment-method/bankily/review`
+
+Agency-admin endpoint for reviewing owner Bankily/direct payment information.
+
+Request body:
+
+```json
+{
+  "status": "verified",
+  "note": "Bankily merchant code verified with owner."
+}
+```
+
+Allowed statuses are `verified`, `rejected`, and `disabled`. Owners cannot self-verify. Tenant Bankily/direct payment details are shown only when the owner method status is `verified`.
+
+## 8. Operational Read And Control Endpoints
 
 The current production-readiness slice adds narrow backend read/control endpoints without moving every Firestore read behind the API.
 
@@ -335,7 +586,7 @@ Owner only. Optional query:
 
 Returns property/unit/tenant counts, occupied/vacant units, payment status counts, rent paid amount, zero tenant/platform rent fee fields, and owner receivable amount.
 
-## 8. Owner Account Fee Model
+## 9. Owner Account Fee Model
 
 Owner account billing is a separate financial object from tenant rent.
 
@@ -350,7 +601,7 @@ Rules:
 - owner account fees never appear on tenant rent receipts
 - real owner-fee payment provider integration is not enabled yet; current owner billing payment actions are simulated or manually recorded by an agency admin
 - in local payment provider integrations, EUR may need to be charged as an MRU equivalent if the provider supports MRU only
-- real payment confirmation must come from backend/provider confirmation, not frontend success
+- any future real owner-fee payment confirmation must come from backend/provider confirmation, not frontend success
 
 Firestore collections:
 
@@ -442,7 +693,7 @@ Marks an accessible notification as read.
 
 Agency-admin only. Returns a recent minimal audit history for operational traceability. This is not a full SIEM or financial ledger.
 
-## 9. Future Read Endpoints
+## 10. Future Read Endpoints
 
 These are still optional because current app reads can remain on Firestore:
 

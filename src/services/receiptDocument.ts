@@ -83,6 +83,28 @@ function buildSituationRows(receipt: ReceiptRecord) {
     ['Statut du paiement', formatPaymentStatusLabel(receipt.paymentStatus)],
     ['Date de paiement', receipt.paidAt ? formatDateTimeLabel(receipt.paidAt) : formatDateLabel(receipt.issuedAt)],
     ['Mode de paiement', receipt.paymentMethod ?? undefined],
+    ...(receipt.issuanceSource === 'provider-confirmed'
+      ? [
+          [
+            'Confirmation prestataire',
+            receipt.providerConfirmationMessage ?? 'Paiement confirmé par le prestataire de paiement.',
+          ] as [string, string],
+          ...(receipt.providerReference
+            ? [['Référence prestataire', receipt.providerReference] as [string, string]]
+            : []),
+        ]
+      : receipt.issuanceSource === 'manual-confirmed'
+        ? [
+            [
+              'Confirmation manuelle',
+              receipt.providerConfirmationMessage ??
+                'Paiement déclaré par le locataire et confirmé par le propriétaire.',
+            ] as [string, string],
+            ...(receipt.providerReference
+              ? [['Référence déclarée', receipt.providerReference] as [string, string]]
+              : []),
+          ]
+      : []),
     ['Référence paiement', receipt.paymentId],
   ];
 

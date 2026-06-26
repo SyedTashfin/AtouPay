@@ -15,6 +15,7 @@ import {
   markAgencyOwnerBillingPaidViaBackend,
   mapBackendErrorToMessage,
   reactivateAgencyOwnerBillingViaBackend,
+  reviewOwnerBankilyPaymentMethodViaBackend,
   suspendAgencyOwnerBillingViaBackend,
   updateAgencyUserStatusViaBackend,
 } from '@/src/services/backendApi';
@@ -73,6 +74,7 @@ function OwnerRow({
   isUpdating,
   onMarkPaid,
   onReactivateBilling,
+  onReviewPaymentMethod,
   onSuspendBilling,
   onToggleStatus,
   user,
@@ -81,6 +83,10 @@ function OwnerRow({
   isUpdating: boolean;
   onMarkPaid: (user: AgencyUserSummary) => void;
   onReactivateBilling: (user: AgencyUserSummary) => void;
+  onReviewPaymentMethod: (
+    user: AgencyUserSummary,
+    status: 'disabled' | 'rejected' | 'verified',
+  ) => void;
   onSuspendBilling: (user: AgencyUserSummary) => void;
   onToggleStatus: (user: AgencyUserSummary) => void;
   user: AgencyUserSummary;
@@ -103,6 +109,24 @@ function OwnerRow({
       <Text style={styles.meta}>
         {`Créé le ${formatDateLabel(user.createdAt)}`}
       </Text>
+      {user.role === 'owner' ? (
+        <View style={styles.billingBox}>
+          <Text style={styles.meta}>Paiement direct Bankily</Text>
+          <Text style={styles.meta}>{`Statut: ${user.bankilyPaymentMethodStatus ?? 'draft'}`}</Text>
+          <PrimaryButton
+            label="Valider méthode Bankily"
+            loading={isUpdating}
+            onPress={() => onReviewPaymentMethod(user, 'verified')}
+            variant="secondary"
+          />
+          <PrimaryButton
+            label="Désactiver méthode Bankily"
+            loading={isUpdating}
+            onPress={() => onReviewPaymentMethod(user, 'disabled')}
+            variant="ghost"
+          />
+        </View>
+      ) : null}
       {user.role === 'owner' && billing ? (
         <View style={styles.billingBox}>
           <View style={styles.rowTop}>
@@ -158,6 +182,12 @@ export default function AgencyOwnersScreen() {
 
     async function loadOwners() {
       try {
+        const agencyOwners = await listAgencyOwnersViaBackend().catch(() => []);
+        const ownerPaymentStatusById = new Map(
+          agencyOwners
+            .filter((owner) => owner.ownerId)
+            .map((owner) => [owner.ownerId!, owner.bankilyPaymentMethodStatus ?? 'draft']),
+        );
         const nextUsers = await listAgencyUsersViaBackend().catch(async () => {
           const owners = await listAgencyOwnersViaBackend();
 
@@ -168,9 +198,20 @@ export default function AgencyOwnersScreen() {
           }));
         });
         const nextBillingItems = await listAgencyOwnerBillingViaBackend().catch(() => []);
+        const usersWithPaymentMethod = nextUsers.map((user) =>
+          user.role === 'owner'
+            ? {
+                ...user,
+                bankilyPaymentMethodStatus:
+                  (user.ownerId ? ownerPaymentStatusById.get(user.ownerId) : undefined) ??
+                  user.bankilyPaymentMethodStatus ??
+                  'draft',
+              }
+            : user,
+        );
 
         if (isMounted) {
-          setUsers(nextUsers);
+          setUsers(usersWithPaymentMethod);
           setBillingItems(nextBillingItems);
         }
       } catch (loadError) {
@@ -272,6 +313,53 @@ export default function AgencyOwnersScreen() {
     }
   };
 
+  const handleReviewPaymentMethod = async (
+    user: AgencyUserSummary,
+    status: 'disabled' | 'rejected' | 'verified',
+  ) => {
+    if (!user.ownerId) {
+      return;
+    }
+
+    setUpdatingUid(user.uid);
+    setFeedback(null);
+    setError(null);
+
+    try {
+      const updatedOwner = await reviewOwnerBankilyPaymentMethodViaBackend({
+        note:
+          status === 'verified'
+            ? 'Méthode Bankily validée par l’agence.'
+            : 'Méthode Bankily désactivée par l’agence.',
+        ownerId: user.ownerId,
+        status,
+      });
+
+      setUsers((currentUsers) =>
+        currentUsers.map((currentUser) =>
+          currentUser.uid === user.uid
+            ? {
+                ...currentUser,
+                bankilyPaymentMethodStatus:
+                  updatedOwner.bankilyPaymentMethodStatus as AgencyUserSummary['bankilyPaymentMethodStatus'],
+              }
+            : currentUser,
+        ),
+      );
+      setFeedback(
+        status === 'verified'
+          ? 'La méthode Bankily est validée pour les locataires.'
+          : 'La méthode Bankily ne sera plus proposée aux locataires.',
+      );
+    } catch (reviewError) {
+      setError(
+        mapBackendErrorToMessage(reviewError, 'La revue de la méthode Bankily a échoué.'),
+      );
+    } finally {
+      setUpdatingUid(null);
+    }
+  };
+
   const handleSuspendBilling = async (user: AgencyUserSummary) => {
     if (!user.ownerId) {
       return;
@@ -362,6 +450,9 @@ export default function AgencyOwnersScreen() {
             }}
             onReactivateBilling={(selectedUser) => {
               void handleReactivateBilling(selectedUser);
+            }}
+            onReviewPaymentMethod={(selectedUser, status) => {
+              void handleReviewPaymentMethod(selectedUser, status);
             }}
             onSuspendBilling={(selectedUser) => {
               void handleSuspendBilling(selectedUser);

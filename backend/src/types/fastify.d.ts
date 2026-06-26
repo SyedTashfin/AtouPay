@@ -7,6 +7,7 @@ import type { BackendService } from '../services/backend-service.js';
 declare module 'fastify' {
   interface FastifyRequest {
     auth: AuthContext | null;
+    rawBody?: Buffer;
   }
 
   interface FastifyInstance {

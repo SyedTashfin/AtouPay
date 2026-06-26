@@ -23,6 +23,13 @@ import type {
   OwnerBillingInvoice,
   OwnerBillingPayment,
 } from '../billing/types.js';
+import type {
+  PaymentAttempt,
+  PaymentIntent,
+  PaymentReconciliationRecord,
+  ProviderTransaction,
+  ProviderWebhookEvent,
+} from '../payments/types.js';
 import type { DataRepository, TransactionContext } from './types.js';
 
 type CollectionName =
@@ -36,7 +43,12 @@ type CollectionName =
   | 'ownerBillingPayments'
   | 'owners'
   | 'ownerAccessInvites'
+  | 'paymentAttempts'
+  | 'paymentIntents'
+  | 'paymentReconciliationRecords'
+  | 'paymentWebhookEvents'
   | 'properties'
+  | 'providerTransactions'
   | 'receipts'
   | 'rentPayments'
   | 'supportRequests'
@@ -77,7 +89,15 @@ function createTransactionContext(db: Firestore, transaction: Transaction): Tran
       readDoc<OwnerBillingInvoice>(transaction, db, 'ownerBillingInvoices', invoiceId),
     getInvite: (inviteId) => readDoc<TenantInviteDoc>(transaction, db, 'tenantInvites', inviteId),
     getPayment: (paymentId) => readDoc<RentPaymentDoc>(transaction, db, 'rentPayments', paymentId),
+    getPaymentAttempt: (attemptId) =>
+      readDoc<PaymentAttempt>(transaction, db, 'paymentAttempts', attemptId),
+    getPaymentIntent: (intentId) =>
+      readDoc<PaymentIntent>(transaction, db, 'paymentIntents', intentId),
+    getPaymentWebhookEvent: (eventId) =>
+      readDoc<ProviderWebhookEvent>(transaction, db, 'paymentWebhookEvents', eventId),
     getProperty: (propertyId) => readDoc<PropertyDoc>(transaction, db, 'properties', propertyId),
+    getProviderTransaction: (providerTransactionId) =>
+      readDoc<ProviderTransaction>(transaction, db, 'providerTransactions', providerTransactionId),
     getReceipt: (receiptId) => readDoc<ReceiptDoc>(transaction, db, 'receipts', receiptId),
     getSupportRequest: (requestId) =>
       readDoc<SupportRequestDoc>(transaction, db, 'supportRequests', requestId),
@@ -86,6 +106,36 @@ function createTransactionContext(db: Firestore, transaction: Transaction): Tran
     getUserTermsAcceptance: (uid) =>
       readDoc<UserTermsAcceptanceDoc>(transaction, db, 'userTermsAcceptances', uid),
     getUser: (uid) => readDoc<UserDoc>(transaction, db, 'users', uid),
+    findPaymentIntentByProviderTransactionId: async (providerTransactionId) => {
+      const snapshot = await transaction.get(
+        db.collection('paymentIntents').where('providerTransactionId', '==', providerTransactionId).limit(1),
+      );
+
+      if (snapshot.empty) {
+        return null;
+      }
+
+      const doc = snapshot.docs[0]!;
+      return {
+        doc: doc.data() as PaymentIntent,
+        id: doc.id,
+      };
+    },
+    findPaymentWebhookEventByIdempotencyKey: async (idempotencyKey) => {
+      const snapshot = await transaction.get(
+        db.collection('paymentWebhookEvents').where('idempotencyKey', '==', idempotencyKey).limit(1),
+      );
+
+      if (snapshot.empty) {
+        return null;
+      }
+
+      const doc = snapshot.docs[0]!;
+      return {
+        doc: doc.data() as ProviderWebhookEvent,
+        id: doc.id,
+      };
+    },
     listOwnerBillingInvoicesByOwner: async (ownerId) => {
       const snapshot = await transaction.get(
         db.collection('ownerBillingInvoices').where('ownerId', '==', ownerId),
@@ -93,6 +143,16 @@ function createTransactionContext(db: Firestore, transaction: Transaction): Tran
 
       return snapshot.docs.map((doc) => ({
         doc: doc.data() as OwnerBillingInvoice,
+        id: doc.id,
+      }));
+    },
+    listPaymentIntentsByPayment: async (paymentId) => {
+      const snapshot = await transaction.get(
+        db.collection('paymentIntents').where('paymentId', '==', paymentId),
+      );
+
+      return snapshot.docs.map((doc) => ({
+        doc: doc.data() as PaymentIntent,
         id: doc.id,
       }));
     },
@@ -152,11 +212,26 @@ function createTransactionContext(db: Firestore, transaction: Transaction): Tran
     setOwner: (ownerId, owner) => {
       transaction.set(getRef(db, 'owners', ownerId), owner);
     },
+    setPaymentAttempt: (attemptId, attempt) => {
+      transaction.set(getRef(db, 'paymentAttempts', attemptId), attempt);
+    },
+    setPaymentIntent: (intentId, intent) => {
+      transaction.set(getRef(db, 'paymentIntents', intentId), intent);
+    },
+    setPaymentReconciliationRecord: (recordId, record) => {
+      transaction.set(getRef(db, 'paymentReconciliationRecords', recordId), record);
+    },
+    setPaymentWebhookEvent: (eventId, event) => {
+      transaction.set(getRef(db, 'paymentWebhookEvents', eventId), event);
+    },
     setPayment: (paymentId, payment) => {
       transaction.set(getRef(db, 'rentPayments', paymentId), payment);
     },
     setProperty: (propertyId, property) => {
       transaction.set(getRef(db, 'properties', propertyId), property);
+    },
+    setProviderTransaction: (providerTransactionId, transactionDoc) => {
+      transaction.set(getRef(db, 'providerTransactions', providerTransactionId), transactionDoc);
     },
     setReceipt: (receiptId, receipt) => {
       transaction.set(getRef(db, 'receipts', receiptId), receipt);
@@ -200,11 +275,26 @@ function createTransactionContext(db: Firestore, transaction: Transaction): Tran
     updateInvite: (inviteId, patch) => {
       transaction.update(getRef(db, 'tenantInvites', inviteId), patch);
     },
+    updatePaymentAttempt: (attemptId, patch) => {
+      transaction.update(getRef(db, 'paymentAttempts', attemptId), patch);
+    },
+    updatePaymentIntent: (intentId, patch) => {
+      transaction.update(getRef(db, 'paymentIntents', intentId), patch);
+    },
+    updatePaymentWebhookEvent: (eventId, patch) => {
+      transaction.update(getRef(db, 'paymentWebhookEvents', eventId), patch);
+    },
     updateNotification: (notificationId, patch) => {
       transaction.update(getRef(db, 'notifications', notificationId), patch);
     },
+    updateOwner: (ownerId, patch) => {
+      transaction.update(getRef(db, 'owners', ownerId), patch);
+    },
     updatePayment: (paymentId, patch) => {
       transaction.update(getRef(db, 'rentPayments', paymentId), patch);
+    },
+    updateProviderTransaction: (providerTransactionId, patch) => {
+      transaction.update(getRef(db, 'providerTransactions', providerTransactionId), patch);
     },
     updateProperty: (propertyId, patch) => {
       transaction.update(getRef(db, 'properties', propertyId), patch);
@@ -324,6 +414,24 @@ export function createFirestoreRepository(db: Firestore): DataRepository {
 
       return snapshot.data() as RentPaymentDoc;
     },
+    async getPaymentIntent(intentId) {
+      const snapshot = await getRef(db, 'paymentIntents', intentId).get();
+
+      if (!snapshot.exists) {
+        return null;
+      }
+
+      return snapshot.data() as PaymentIntent;
+    },
+    async getPaymentWebhookEvent(eventId) {
+      const snapshot = await getRef(db, 'paymentWebhookEvents', eventId).get();
+
+      if (!snapshot.exists) {
+        return null;
+      }
+
+      return snapshot.data() as ProviderWebhookEvent;
+    },
     async getProperty(propertyId) {
       const snapshot = await getRef(db, 'properties', propertyId).get();
 
@@ -332,6 +440,15 @@ export function createFirestoreRepository(db: Firestore): DataRepository {
       }
 
       return snapshot.data() as PropertyDoc;
+    },
+    async getProviderTransaction(providerTransactionId) {
+      const snapshot = await getRef(db, 'providerTransactions', providerTransactionId).get();
+
+      if (!snapshot.exists) {
+        return null;
+      }
+
+      return snapshot.data() as ProviderTransaction;
     },
     async getReceipt(receiptId) {
       const snapshot = await getRef(db, 'receipts', receiptId).get();
@@ -453,6 +570,51 @@ export function createFirestoreRepository(db: Firestore): DataRepository {
         id: doc.id,
       }));
     },
+    async findPaymentIntentByProviderTransactionId(providerTransactionId) {
+      const snapshot = await db
+        .collection('paymentIntents')
+        .where('providerTransactionId', '==', providerTransactionId)
+        .limit(1)
+        .get();
+
+      if (snapshot.empty) {
+        return null;
+      }
+
+      const doc = snapshot.docs[0]!;
+      return {
+        doc: doc.data() as PaymentIntent,
+        id: doc.id,
+      };
+    },
+    async findPaymentWebhookEventByIdempotencyKey(idempotencyKey) {
+      const snapshot = await db
+        .collection('paymentWebhookEvents')
+        .where('idempotencyKey', '==', idempotencyKey)
+        .limit(1)
+        .get();
+
+      if (snapshot.empty) {
+        return null;
+      }
+
+      const doc = snapshot.docs[0]!;
+      return {
+        doc: doc.data() as ProviderWebhookEvent,
+        id: doc.id,
+      };
+    },
+    async listPaymentIntentsByPayment(paymentId) {
+      const snapshot = await db
+        .collection('paymentIntents')
+        .where('paymentId', '==', paymentId)
+        .get();
+
+      return snapshot.docs.map((doc) => ({
+        doc: doc.data() as PaymentIntent,
+        id: doc.id,
+      }));
+    },
     async listPaymentsByAgency(agencyId) {
       const snapshot = await db
         .collection('rentPayments')
@@ -491,6 +653,14 @@ export function createFirestoreRepository(db: Firestore): DataRepository {
         .collection('supportRequests')
         .where('agencyId', '==', agencyId)
         .get();
+
+      return snapshot.docs.map((doc) => ({
+        doc: doc.data() as SupportRequestDoc,
+        id: doc.id,
+      }));
+    },
+    async listSupportRequests() {
+      const snapshot = await db.collection('supportRequests').get();
 
       return snapshot.docs.map((doc) => ({
         doc: doc.data() as SupportRequestDoc,

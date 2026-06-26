@@ -1,0 +1,18 @@
+{
+  "event": "payment-updated",
+  "id": "moosyl-event-unknown-status-1",
+  "data": {
+    "id": "moosyl-payment-unknown-status-1",
+    "amount": 200000,
+    "currency": "MRU",
+    "status": "awaiting-user-action",
+    "referenceId": "bankily-ref-unknown-884421",
+    "paymentRequestId": "mpr_test_unknown_001",
+    "request": {
+      "id": "mpr_test_unknown_001",
+      "transactionId": "moosyl-transaction-unknown-status",
+      "totalAmount": 200000,
+      "currency": "MRU"
+    }
+  }
+}

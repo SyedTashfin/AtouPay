@@ -9,6 +9,7 @@ import {
   initializeAuth,
 } from 'firebase/auth';
 import { Firestore, getFirestore } from 'firebase/firestore';
+import { FirebaseStorage, getStorage } from 'firebase/storage';
 
 import { appConfig } from '@/src/config/env';
 
@@ -71,6 +72,7 @@ function createFirebaseAuth(app: FirebaseApp) {
 export const firebaseApp = createFirebaseApp();
 export const auth: Auth | null = firebaseApp ? createFirebaseAuth(firebaseApp) : null;
 export const db: Firestore | null = firebaseApp ? getFirestore(firebaseApp) : null;
+export const storage: FirebaseStorage | null = firebaseApp ? getStorage(firebaseApp) : null;
 
 export function getFirebaseUnavailableMessage() {
   if (isFirebaseConfigured) {
@@ -104,4 +106,15 @@ export function requireFirestore() {
   }
 
   return db;
+}
+
+export function requireFirebaseStorage() {
+  if (!storage) {
+    throw new Error(
+      getFirebaseUnavailableMessage() ??
+        'Firebase Storage n’est pas initialisé dans cette build.',
+    );
+  }
+
+  return storage;
 }

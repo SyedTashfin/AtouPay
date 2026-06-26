@@ -76,6 +76,13 @@ const plugins = [
   'expo-router',
   'expo-secure-store',
   'expo-dev-client',
+  [
+    'expo-image-picker',
+    {
+      photosPermission:
+        'ATouPay utilise vos photos uniquement pour joindre une preuve de paiement à vérifier.',
+    },
+  ],
   ...(googleIosUrlScheme
     ? [
         [

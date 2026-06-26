@@ -1,6 +1,8 @@
 import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox';
 import { Type } from '@sinclair/typebox';
 
+import { AppError } from '../lib/errors.js';
+
 const errorResponseSchema = Type.Object({
   error: Type.Object({
     code: Type.String(),
@@ -161,6 +163,7 @@ const revokeOwnerAccessInviteParamsSchema = Type.Object({
 
 const agencyOwnerSchema = Type.Object({
   agencyId: Type.Union([Type.String(), Type.Null()]),
+  bankilyPaymentMethodStatus: Type.Optional(Type.String()),
   createdAt: Type.String(),
   displayName: Type.String(),
   email: Type.String(),
@@ -285,6 +288,7 @@ const notificationTypeSchema = Type.Union([
   Type.Literal('payment_completed'),
   Type.Literal('payment_overdue'),
   Type.Literal('payment_pending'),
+  Type.Literal('payment_proof_reminder'),
   Type.Literal('rent_due_reminder'),
   Type.Literal('support_request_status_changed'),
   Type.Literal('tenant_invite_created'),
@@ -330,6 +334,7 @@ const auditEventTypeSchema = Type.Union([
   Type.Literal('owner_invite_deleted'),
   Type.Literal('owner_invite_revoked'),
   Type.Literal('payment_completed'),
+  Type.Literal('payment_method_updated'),
   Type.Literal('support_request_created'),
   Type.Literal('support_request_updated'),
   Type.Literal('tenant_invite_created'),
@@ -462,21 +467,98 @@ const supportRequestStatusSchema = Type.Union([
   Type.Literal('resolved'),
 ]);
 
+const manualPaymentProofStatusSchema = Type.Union([
+  Type.Literal('submitted'),
+  Type.Literal('confirmed'),
+  Type.Literal('rejected'),
+  Type.Literal('disputed'),
+]);
+
+const manualPaymentProofRiskLevelSchema = Type.Union([
+  Type.Literal('low'),
+  Type.Literal('medium'),
+  Type.Literal('high'),
+]);
+
+const manualPaymentProofCheckResultSchema = Type.Object({
+  amountMatches: Type.Boolean(),
+  currencyMatches: Type.Boolean(),
+  dateLooksValid: Type.Boolean(),
+  hasImageProof: Type.Boolean(),
+  referenceMatches: Type.Boolean(),
+  riskLevel: manualPaymentProofRiskLevelSchema,
+  warnings: Type.Array(Type.String()),
+});
+
+const submittedPaymentMethodSchema = Type.Union([
+  Type.Literal('bankily'),
+  Type.Literal('sedad'),
+  Type.Literal('masrvi'),
+  Type.Literal('bank_transfer'),
+  Type.Literal('cash'),
+  Type.Literal('cheque'),
+  Type.Literal('other'),
+]);
+
+const ownerReviewStatusSchema = Type.Union([
+  Type.Literal('waiting_owner_review'),
+  Type.Literal('agency_escalated'),
+  Type.Literal('confirmed'),
+  Type.Literal('rejected'),
+  Type.Literal('disputed'),
+]);
+
 const supportRequestSchema = Type.Object({
   agencyId: Type.Union([Type.String(), Type.Null()]),
+  agencyEscalationAvailable: Type.Optional(Type.Union([Type.Boolean(), Type.Null()])),
+  agencyEscalationAvailableAt: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   category: supportRequestCategorySchema,
   contactEmail: Type.String(),
   createdAt: Type.String(),
   description: Type.String(),
+  expectedAmount: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
+  expectedAtouPayReference: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  expectedCurrency: Type.Optional(Type.Union([Type.Literal('MRU'), Type.Null()])),
   id: Type.String(),
+  manualPaymentMethod: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  manualProofReviewNote: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  manualProofReviewedAt: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  manualProofReviewedByUserId: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  manualProofStatus: Type.Optional(
+    Type.Union([manualPaymentProofStatusSchema, Type.Null()]),
+  ),
+  ownerLastReminderAt: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  ownerReminderCount: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
+  ownerReviewRequestedAt: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  ownerReviewStatus: Type.Optional(Type.Union([ownerReviewStatusSchema, Type.Null()])),
   paymentId: Type.Union([Type.String(), Type.Null()]),
   phoneNumber: Type.Union([Type.String(), Type.Null()]),
+  proofCheckResult: Type.Optional(
+    Type.Union([manualPaymentProofCheckResultSchema, Type.Null()]),
+  ),
+  proofImageContentType: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  proofImageFileName: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  proofImageOriginalFileName: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  proofImageSizeBytes: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
+  proofImageStoragePath: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  proofImageUrl: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  proofNote: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  proofSubmittedAt: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  proofTransactionReference: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   recoveryContactPreference: Type.Union([recoveryContactPreferenceSchema, Type.Null()]),
   requestorDisplayName: Type.String(),
   requestorRole: Type.Union([roleSchema, Type.Literal('guest')]),
   resolutionNote: Type.Union([Type.String(), Type.Null()]),
   resolvedAt: Type.Union([Type.String(), Type.Null()]),
   status: supportRequestStatusSchema,
+  submittedAmount: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
+  submittedCurrency: Type.Optional(Type.Union([Type.Literal('MRU'), Type.Null()])),
+  submittedNote: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  submittedPaymentDate: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  submittedPaymentMethod: Type.Optional(Type.Union([submittedPaymentMethodSchema, Type.Null()])),
+  submittedPaymentReference: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  submittedPaymentTime: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  submittedTransactionReference: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   subject: Type.String(),
   updatedAt: Type.String(),
   userId: Type.Union([Type.String(), Type.Null()]),
@@ -523,6 +605,93 @@ const updateSupportRequestBodySchema = Type.Object({
   status: Type.Union([Type.Literal('in_progress'), Type.Literal('resolved')]),
 });
 
+const submitManualPaymentProofBodySchema = Type.Object({
+  note: Type.Optional(Type.Union([Type.String({ maxLength: 2000 }), Type.Null()])),
+  paymentMethod: Type.Optional(Type.String({ minLength: 1, maxLength: 40 })),
+  proofImageContentType: Type.Optional(
+    Type.Union([Type.String({ maxLength: 120 }), Type.Null()]),
+  ),
+  proofImageFileName: Type.Optional(
+    Type.Union([Type.String({ maxLength: 240 }), Type.Null()]),
+  ),
+  proofImageOriginalFileName: Type.Optional(
+    Type.Union([Type.String({ maxLength: 240 }), Type.Null()]),
+  ),
+  proofImageSizeBytes: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
+  proofImageStoragePath: Type.Optional(
+    Type.Union([Type.String({ maxLength: 800 }), Type.Null()]),
+  ),
+  proofImageUrl: Type.Optional(Type.Union([Type.String({ maxLength: 2000 }), Type.Null()])),
+  providerReference: Type.Optional(Type.Union([Type.String({ maxLength: 120 }), Type.Null()])),
+  submittedAmount: Type.Number({ exclusiveMinimum: 0 }),
+  submittedCurrency: Type.Literal('MRU'),
+  submittedNote: Type.Optional(Type.Union([Type.String({ maxLength: 2000 }), Type.Null()])),
+  submittedPaymentDate: Type.String({ minLength: 10, maxLength: 10 }),
+  submittedPaymentMethod: submittedPaymentMethodSchema,
+  submittedPaymentReference: Type.String({ minLength: 1, maxLength: 120 }),
+  submittedPaymentTime: Type.Optional(Type.Union([Type.String({ maxLength: 16 }), Type.Null()])),
+  submittedProofImageContentType: Type.Optional(
+    Type.Union([Type.String({ maxLength: 120 }), Type.Null()]),
+  ),
+  submittedProofImageFileName: Type.Optional(
+    Type.Union([Type.String({ maxLength: 240 }), Type.Null()]),
+  ),
+  submittedProofImageOriginalFileName: Type.Optional(
+    Type.Union([Type.String({ maxLength: 240 }), Type.Null()]),
+  ),
+  submittedProofImageSize: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
+  submittedProofImageStoragePath: Type.Optional(
+    Type.Union([Type.String({ maxLength: 800 }), Type.Null()]),
+  ),
+  submittedTransactionReference: Type.Optional(
+    Type.Union([Type.String({ maxLength: 120 }), Type.Null()]),
+  ),
+});
+
+const reviewManualPaymentProofBodySchema = Type.Object({
+  decision: Type.Union([
+    Type.Literal('confirmed'),
+    Type.Literal('rejected'),
+    Type.Literal('disputed'),
+  ]),
+  note: Type.Optional(Type.Union([Type.String({ maxLength: 2000 }), Type.Null()])),
+  overrideReason: Type.Optional(Type.Union([Type.String({ maxLength: 1000 }), Type.Null()])),
+  settlementNote: Type.Optional(Type.Union([Type.String({ maxLength: 1000 }), Type.Null()])),
+});
+
+const reviewOwnerPaymentMethodBodySchema = Type.Object({
+  note: Type.Optional(Type.Union([Type.String({ maxLength: 1000 }), Type.Null()])),
+  status: Type.Union([
+    Type.Literal('verified'),
+    Type.Literal('rejected'),
+    Type.Literal('disabled'),
+  ]),
+});
+
+const reviewOwnerPaymentMethodParamsSchema = Type.Object({
+  ownerId: Type.String({ minLength: 1 }),
+});
+
+const ownerPaymentMethodResponseSchema = Type.Object({
+  data: Type.Object({
+    agencyId: Type.Union([Type.String(), Type.Null()]),
+    bankilyPaymentMethodStatus: Type.Optional(Type.String()),
+    displayName: Type.String(),
+    ownerId: Type.String(),
+    userId: Type.String(),
+  }),
+  ok: Type.Literal(true),
+});
+
+const manualProofReminderTaskResponseSchema = Type.Object({
+  data: Type.Object({
+    escalationsMarked: Type.Number(),
+    remindersCreated: Type.Number(),
+    scanned: Type.Number(),
+  }),
+  ok: Type.Literal(true),
+});
+
 const redeemOwnerAccessBodySchema = Type.Object({
   inviteCode: Type.String({ minLength: 1 }),
 });
@@ -559,7 +728,11 @@ const receiptSchema = Type.Object({
   id: Type.String(),
   issuedAt: Type.String(),
   issuedBy: Type.Literal('backend'),
-  issuanceSource: Type.Literal('simulate-complete'),
+  issuanceSource: Type.Union([
+    Type.Literal('manual-confirmed'),
+    Type.Literal('provider-confirmed'),
+    Type.Literal('simulate-complete'),
+  ]),
   ownerDisplayName: Type.String(),
   ownerEmail: Type.String(),
   ownerId: Type.String(),
@@ -568,6 +741,9 @@ const receiptSchema = Type.Object({
   paymentId: Type.String(),
   paymentMethod: Type.String(),
   paymentStatus: paymentStatusSchema,
+  provider: Type.Optional(Type.String()),
+  providerConfirmationMessage: Type.Optional(Type.String()),
+  providerReference: Type.Optional(Type.String()),
   propertyId: Type.String(),
   propertyLabel: Type.String(),
   qrVerificationToken: Type.String(),
@@ -587,6 +763,12 @@ const completeSimulatedPaymentParamsSchema = Type.Object({
 
 const completeSimulatedPaymentBodySchema = Type.Object({
   paymentMethod: Type.String({ minLength: 1, maxLength: 40 }),
+});
+
+const confirmManualPaymentBodySchema = Type.Object({
+  note: Type.Optional(Type.String({ maxLength: 500 })),
+  paymentMethod: Type.Optional(Type.String({ minLength: 1, maxLength: 40 })),
+  providerReference: Type.Optional(Type.String({ maxLength: 120 })),
 });
 
 const completeSimulatedPaymentResponseSchema = Type.Object({
@@ -835,6 +1017,64 @@ export const v1Routes: FastifyPluginAsyncTypebox = async (app) => {
     }),
   );
 
+  app.post(
+    '/v1/support/requests/:requestId/manual-proof/review',
+    {
+      preHandler: app.authenticate,
+      schema: {
+        body: reviewManualPaymentProofBodySchema,
+        params: updateSupportRequestParamsSchema,
+        response: {
+          200: supportRequestResponseSchema,
+          ...protectedErrorResponses,
+        },
+      },
+    },
+    async (request) => ({
+      data: await app.services.reviewManualRentPaymentProof(
+        request.auth!,
+        request.params.requestId,
+        request.body,
+      ),
+      ok: true as const,
+    }),
+  );
+
+  app.post(
+    '/v1/tasks/manual-proof-reminders/run',
+    {
+      schema: {
+        response: {
+          200: manualProofReminderTaskResponseSchema,
+          403: errorResponseSchema,
+          500: errorResponseSchema,
+        },
+      },
+    },
+    async (request) => {
+      const providedSecret = request.headers['x-internal-task-secret'];
+      const secret =
+        typeof providedSecret === 'string'
+          ? providedSecret
+          : Array.isArray(providedSecret)
+            ? providedSecret[0]
+            : undefined;
+
+      if (!app.config.internalTaskSecret || secret !== app.config.internalTaskSecret) {
+        throw new AppError(
+          403,
+          'internal_task_secret_required',
+          'Cette tâche interne requiert un secret opérateur valide.',
+        );
+      }
+
+      return {
+        data: await app.services.runManualProofReminderTask(),
+        ok: true as const,
+      };
+    },
+  );
+
   app.get(
     '/v1/notifications',
     {
@@ -994,6 +1234,29 @@ export const v1Routes: FastifyPluginAsyncTypebox = async (app) => {
     },
     async (request) => ({
       data: await app.services.listAgencyOwners(request.auth!),
+      ok: true as const,
+    }),
+  );
+
+  app.post(
+    '/v1/agency/owners/:ownerId/payment-method/bankily/review',
+    {
+      preHandler: app.authenticate,
+      schema: {
+        body: reviewOwnerPaymentMethodBodySchema,
+        params: reviewOwnerPaymentMethodParamsSchema,
+        response: {
+          200: ownerPaymentMethodResponseSchema,
+          ...protectedErrorResponses,
+        },
+      },
+    },
+    async (request) => ({
+      data: await app.services.reviewOwnerBankilyPaymentMethod(
+        request.auth!,
+        request.params.ownerId,
+        request.body,
+      ),
       ok: true as const,
     }),
   );
@@ -1292,6 +1555,58 @@ export const v1Routes: FastifyPluginAsyncTypebox = async (app) => {
       }),
       ok: true as const,
     }),
+  );
+
+  app.post(
+    '/v1/payments/:paymentId/manual-confirm',
+    {
+      preHandler: app.authenticate,
+      schema: {
+        body: confirmManualPaymentBodySchema,
+        params: completeSimulatedPaymentParamsSchema,
+        response: {
+          200: completeSimulatedPaymentResponseSchema,
+          ...protectedErrorResponses,
+        },
+      },
+    },
+    async (request) => ({
+      data: await app.services.confirmManualRentPayment(request.auth!, {
+        paymentId: request.params.paymentId,
+        ...(request.body.note !== undefined ? { note: request.body.note } : {}),
+        ...(request.body.paymentMethod !== undefined
+          ? { paymentMethod: request.body.paymentMethod }
+          : {}),
+        ...(request.body.providerReference !== undefined
+          ? { providerReference: request.body.providerReference }
+          : {}),
+      }),
+      ok: true as const,
+    }),
+  );
+
+  app.post(
+    '/v1/payments/:paymentId/manual-proof',
+    {
+      preHandler: app.authenticate,
+      schema: {
+        body: submitManualPaymentProofBodySchema,
+        params: completeSimulatedPaymentParamsSchema,
+        response: {
+          201: supportRequestResponseSchema,
+          ...protectedErrorResponses,
+        },
+      },
+    },
+    async (request, reply) =>
+      reply.status(201).send({
+        data: await app.services.submitManualRentPaymentProof(
+          request.auth!,
+          request.params.paymentId,
+          request.body,
+        ),
+        ok: true as const,
+      }),
   );
 
   app.get(

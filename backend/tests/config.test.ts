@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { loadConfig } from '../src/config/env.js';
+import { PAYMENT_PROVIDER_LIVE_ACK_VALUE, loadConfig } from '../src/config/env.js';
+import { AppError } from '../src/lib/errors.js';
+import { getPaymentRuntimeConfig } from '../src/payments/paymentConfig.js';
 
 function createCredentialsFile() {
   const directory = mkdtempSync(path.join(tmpdir(), 'atoupay-backend-'));
@@ -50,6 +52,97 @@ test('loadConfig resolves cloud-run mode with application default credentials st
   assert.equal(config.runtimeMode, 'cloud-run');
   assert.equal(config.credentialStrategy, 'application-default');
   assert.equal(config.isEmailEnabled, false);
+  assert.equal(config.paymentProvider, 'simulated');
+  assert.equal(config.paymentLiveMode, false);
+});
+
+test('loadConfig rejects Moosyl provider without required backend secrets and public URLs', () => {
+  assert.throws(
+    () =>
+      loadConfig({
+        FIREBASE_PROJECT_ID: 'atoupay-dev',
+        PAYMENT_PROVIDER: 'moosyl',
+      }),
+    /PAYMENT_PROVIDER=moosyl requires/,
+  );
+});
+
+test('loadConfig accepts Moosyl test configuration without exposing secrets as public app config', () => {
+  const config = loadConfig({
+    FIREBASE_PROJECT_ID: 'atoupay-dev',
+    MOOSYL_PUBLISHABLE_KEY: 'pk_test_placeholder',
+    MOOSYL_SECRET_KEY: 'sk_test_placeholder',
+    MOOSYL_WEBHOOK_SECRET: 'whsec_test_placeholder',
+    PAYMENT_LIVE_MODE: 'false',
+    PAYMENT_PROVIDER: 'moosyl',
+    PUBLIC_API_URL: 'https://api.dev.atoupay.example',
+    PUBLIC_APP_URL: 'https://app.dev.atoupay.example',
+  });
+
+  assert.equal(config.paymentProvider, 'moosyl');
+  assert.equal(config.paymentLiveMode, false);
+  assert.equal(config.moosylPublishableKey, 'pk_test_placeholder');
+  assert.equal(config.moosylSecretKey, 'sk_test_placeholder');
+  assert.equal(config.moosylWebhookSecret, 'whsec_test_placeholder');
+});
+
+test('loadConfig rejects Moosyl live mode without explicit live money acknowledgement', () => {
+  assert.throws(
+    () =>
+      loadConfig({
+        FIREBASE_PROJECT_ID: 'atoupay-dev',
+        MOOSYL_PUBLISHABLE_KEY: 'pk_test_placeholder',
+        MOOSYL_SECRET_KEY: 'sk_test_placeholder',
+        MOOSYL_WEBHOOK_SECRET: 'whsec_test_placeholder',
+        PAYMENT_LIVE_MODE: 'true',
+        PAYMENT_PROVIDER: 'moosyl',
+        PUBLIC_API_URL: 'https://api.dev.atoupay.example',
+        PUBLIC_APP_URL: 'https://app.dev.atoupay.example',
+      }),
+    /PAYMENT_PROVIDER_LIVE_ACK/,
+  );
+});
+
+test('loadConfig accepts Moosyl live mode only with exact acknowledgement', () => {
+  const config = loadConfig({
+    FIREBASE_PROJECT_ID: 'atoupay-dev',
+    MOOSYL_PUBLISHABLE_KEY: 'pk_test_placeholder',
+    MOOSYL_SECRET_KEY: 'sk_test_placeholder',
+    MOOSYL_WEBHOOK_SECRET: 'whsec_test_placeholder',
+    PAYMENT_LIVE_MODE: 'true',
+    PAYMENT_PROVIDER: 'moosyl',
+    PAYMENT_PROVIDER_LIVE_ACK: PAYMENT_PROVIDER_LIVE_ACK_VALUE,
+    PUBLIC_API_URL: 'https://api.dev.atoupay.example',
+    PUBLIC_APP_URL: 'https://app.dev.atoupay.example',
+  });
+
+  assert.equal(config.paymentLiveMode, true);
+  assert.equal(config.paymentProviderLiveAck, PAYMENT_PROVIDER_LIVE_ACK_VALUE);
+});
+
+test('getPaymentRuntimeConfig rejects bypassed live Moosyl config without acknowledgement', () => {
+  const config = loadConfig({
+    FIREBASE_PROJECT_ID: 'atoupay-dev',
+    MOOSYL_PUBLISHABLE_KEY: 'pk_test_placeholder',
+    MOOSYL_SECRET_KEY: 'sk_test_placeholder',
+    MOOSYL_WEBHOOK_SECRET: 'whsec_test_placeholder',
+    PAYMENT_LIVE_MODE: 'false',
+    PAYMENT_PROVIDER: 'moosyl',
+    PUBLIC_API_URL: 'https://api.dev.atoupay.example',
+    PUBLIC_APP_URL: 'https://app.dev.atoupay.example',
+  });
+
+  assert.throws(
+    () =>
+      getPaymentRuntimeConfig({
+        ...config,
+        paymentLiveMode: true,
+      }),
+    (error) =>
+      error instanceof AppError &&
+      error.code === 'payment_live_ack_required' &&
+      /confirmation/.test(error.message),
+  );
 });
 
 test('loadConfig enables Resend invite email delivery when configured', () => {

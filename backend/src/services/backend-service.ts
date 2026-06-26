@@ -8,10 +8,15 @@ import type {
   AuthContext,
   InviteType,
   LegalTermsDoc,
+  ManualPaymentProofCheckResultDoc,
+  ManualPaymentProofOwnerReviewStatus,
+  ManualPaymentProofRiskLevel,
+  ManualPaymentProofSubmittedMethod,
   NotificationDoc,
   NotificationType,
   OwnerDoc,
   OwnerAccessInviteDoc,
+  OwnerPaymentMethodStatus,
   PaymentStatus,
   PropertyDoc,
   RecoveryContactPreference,
@@ -50,13 +55,27 @@ import {
   type AgencyOwnerBillingSummary,
   type OwnerBillingSummary,
 } from '../billing/ownerBillingService.js';
+import {
+  getPaymentRuntimeConfig,
+} from '../payments/paymentConfig.js';
+import type { PaymentProvider } from '../payments/paymentProvider.js';
+import { PaymentService } from '../payments/paymentService.js';
+import { PaymentWebhookService } from '../payments/paymentWebhookService.js';
+import { MoosylPaymentProvider, type MoosylHttpClient } from '../payments/providers/moosylPaymentProvider.js';
+import type {
+  PaymentProviderName,
+  RentPaymentIntentOutput,
+  RentPaymentStatusOutput,
+} from '../payments/types.js';
 import { noopInviteEmailService, type InviteEmailService } from './email-service.js';
 import { finalizeSimulatedPaymentProvider } from './payment-provider.js';
 
 interface BackendServiceOptions {
   config: AppConfig;
   emailService?: InviteEmailService;
+  moosylHttpClient?: MoosylHttpClient | undefined;
   now?: () => Date;
+  paymentProviders?: Partial<Record<PaymentProviderName, PaymentProvider>> | undefined;
   repository: DataRepository;
 }
 
@@ -180,6 +199,7 @@ export interface OwnerAccessInviteOutput {
 
 export interface ListAgencyOwnersOutputItem {
   agencyId: string | null;
+  bankilyPaymentMethodStatus?: OwnerPaymentMethodStatus;
   createdAt: string;
   displayName: string;
   email: string;
@@ -356,19 +376,51 @@ export interface UpdateProfileContactInput {
 
 export interface SupportRequestOutput {
   agencyId: string | null;
+  agencyEscalationAvailable?: boolean | null;
+  agencyEscalationAvailableAt?: string | null;
   category: SupportRequestCategory;
   contactEmail: string;
   createdAt: string;
   description: string;
+  expectedAmount?: number | null;
+  expectedAtouPayReference?: string | null;
+  expectedCurrency?: 'MRU' | null;
   id: string;
+  manualPaymentMethod?: string | null;
+  manualProofReviewNote?: string | null;
+  manualProofReviewedAt?: string | null;
+  manualProofReviewedByUserId?: string | null;
+  manualProofStatus?: 'confirmed' | 'disputed' | 'rejected' | 'submitted' | null;
+  ownerLastReminderAt?: string | null;
+  ownerReminderCount?: number | null;
+  ownerReviewRequestedAt?: string | null;
+  ownerReviewStatus?: ManualPaymentProofOwnerReviewStatus | null;
   paymentId: string | null;
   phoneNumber: string | null;
+  proofCheckResult?: ManualPaymentProofCheckResultDoc | null;
+  proofImageContentType?: string | null;
+  proofImageFileName?: string | null;
+  proofImageOriginalFileName?: string | null;
+  proofImageSizeBytes?: number | null;
+  proofImageStoragePath?: string | null;
+  proofImageUrl?: string | null;
+  proofNote?: string | null;
+  proofSubmittedAt?: string | null;
+  proofTransactionReference?: string | null;
   recoveryContactPreference: RecoveryContactPreference | null;
   requestorDisplayName: string;
   requestorRole: Role | 'guest';
   resolutionNote: string | null;
   resolvedAt: string | null;
   status: SupportRequestStatus;
+  submittedAmount?: number | null;
+  submittedCurrency?: 'MRU' | null;
+  submittedNote?: string | null;
+  submittedPaymentDate?: string | null;
+  submittedPaymentMethod?: ManualPaymentProofSubmittedMethod | null;
+  submittedPaymentReference?: string | null;
+  submittedPaymentTime?: string | null;
+  submittedTransactionReference?: string | null;
   subject: string;
   updatedAt: string;
   userId: string | null;
@@ -402,6 +454,52 @@ export interface CompleteSimulatedPaymentInput {
   paymentMethod: string;
 }
 
+export interface ConfirmManualRentPaymentInput {
+  confirmationSource?: 'agency' | 'owner';
+  note?: string | null;
+  paymentId: string;
+  paymentMethod?: string;
+  providerReference?: string | null;
+  settlementNote?: string | null;
+}
+
+export interface SubmitManualRentPaymentProofInput {
+  note?: string | null;
+  paymentMethod?: string;
+  proofImageContentType?: string | null;
+  proofImageFileName?: string | null;
+  proofImageOriginalFileName?: string | null;
+  proofImageSizeBytes?: number | null;
+  proofImageStoragePath?: string | null;
+  proofImageUrl?: string | null;
+  providerReference?: string | null;
+  submittedAmount?: number;
+  submittedCurrency?: 'MRU';
+  submittedNote?: string | null;
+  submittedPaymentDate?: string;
+  submittedPaymentMethod?: ManualPaymentProofSubmittedMethod;
+  submittedPaymentReference?: string;
+  submittedPaymentTime?: string | null;
+  submittedProofImageContentType?: string | null;
+  submittedProofImageFileName?: string | null;
+  submittedProofImageOriginalFileName?: string | null;
+  submittedProofImageSize?: number | null;
+  submittedProofImageStoragePath?: string | null;
+  submittedTransactionReference?: string | null;
+}
+
+export interface ReviewManualRentPaymentProofInput {
+  decision: 'confirmed' | 'disputed' | 'rejected';
+  note?: string | null;
+  overrideReason?: string | null;
+  settlementNote?: string | null;
+}
+
+export interface ReviewOwnerPaymentMethodInput {
+  note?: string | null;
+  status: Extract<OwnerPaymentMethodStatus, 'disabled' | 'rejected' | 'verified'>;
+}
+
 export interface ReceiptOutput {
   agencyFeeAmount: number;
   agencyDisplayName: string;
@@ -410,7 +508,7 @@ export interface ReceiptOutput {
   id: string;
   issuedAt: string;
   issuedBy: 'backend';
-  issuanceSource: 'simulate-complete';
+  issuanceSource: 'manual-confirmed' | 'provider-confirmed' | 'simulate-complete';
   ownerDisplayName: string;
   ownerEmail: string;
   ownerId: string;
@@ -419,6 +517,9 @@ export interface ReceiptOutput {
   paymentId: string;
   paymentMethod: string;
   paymentStatus: PaymentStatus;
+  provider?: string;
+  providerConfirmationMessage?: string;
+  providerReference?: string;
   propertyId: string;
   propertyLabel: string;
   qrVerificationToken: string;
@@ -444,6 +545,15 @@ export interface ReceiptVerificationOutput {
 
 const LEGAL_TERMS_DOCUMENT_ID = 'terms-of-use';
 const LEGAL_TERMS_VERSION = '2026-04-23.1';
+const MAX_MANUAL_PROOF_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
+const OWNER_PROOF_REVIEW_REMINDER_HOURS = 24;
+const OWNER_PROOF_REVIEW_ESCALATION_HOURS = 48;
+const OWNER_PROOF_REVIEW_MAX_REMINDERS = 3;
+const ALLOWED_MANUAL_PROOF_IMAGE_CONTENT_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+]);
 
 function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
@@ -456,6 +566,251 @@ function normalizeNullableString(value: string | null | undefined) {
 
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : null;
+}
+
+function hasManualProofImageMetadata(input: SubmitManualRentPaymentProofInput) {
+  return Boolean(
+    normalizeNullableString(input.proofImageContentType) ||
+      normalizeNullableString(input.proofImageFileName) ||
+      normalizeNullableString(input.proofImageOriginalFileName) ||
+      normalizeNullableString(input.proofImageStoragePath) ||
+      normalizeNullableString(input.proofImageUrl) ||
+      typeof input.proofImageSizeBytes === 'number' ||
+      normalizeNullableString(input.submittedProofImageContentType) ||
+      normalizeNullableString(input.submittedProofImageFileName) ||
+      normalizeNullableString(input.submittedProofImageOriginalFileName) ||
+      normalizeNullableString(input.submittedProofImageStoragePath) ||
+      typeof input.submittedProofImageSize === 'number',
+  );
+}
+
+function validateManualProofImageMetadata(input: {
+  agencyId: string | null;
+  contentType: string | null;
+  fileName: string | null;
+  paymentId: string;
+  proofImageUrl: string | null;
+  sizeBytes?: number | null;
+  storagePath: string | null;
+  tenantId: string;
+}) {
+  if (input.proofImageUrl) {
+    throw new AppError(
+      400,
+      'manual_payment_proof_public_url_rejected',
+      'La preuve image doit être référencée par chemin Firebase Storage, pas par URL publique.',
+    );
+  }
+
+  if (!input.agencyId) {
+    throw new AppError(
+      409,
+      'manual_payment_proof_agency_missing',
+      'Le paiement doit être rattaché à une agence pour joindre une preuve image sécurisée.',
+    );
+  }
+
+  if (!input.storagePath || !input.contentType || !input.fileName || typeof input.sizeBytes !== 'number') {
+    throw new AppError(
+      400,
+      'manual_payment_proof_image_metadata_incomplete',
+      'Le chemin, le type, le nom et la taille de la preuve image sont requis.',
+    );
+  }
+
+  const normalizedContentType = input.contentType.toLowerCase();
+
+  if (!ALLOWED_MANUAL_PROOF_IMAGE_CONTENT_TYPES.has(normalizedContentType)) {
+    throw new AppError(
+      400,
+      'manual_payment_proof_invalid_image',
+      'La preuve image doit être au format JPG, PNG ou WebP.',
+    );
+  }
+
+  if (input.sizeBytes <= 0 || input.sizeBytes > MAX_MANUAL_PROOF_IMAGE_SIZE_BYTES) {
+    throw new AppError(
+      400,
+      'manual_payment_proof_image_too_large',
+      'La preuve image doit faire 5 Mo maximum.',
+    );
+  }
+
+  const segments = input.storagePath.split('/');
+  const expectedPrefix = ['paymentProofs', input.agencyId, input.paymentId, input.tenantId];
+
+  if (
+    segments.length !== 5 ||
+    segments.slice(0, 4).some((segment, index) => segment !== expectedPrefix[index]) ||
+    segments[4] !== input.fileName ||
+    input.fileName.includes('/') ||
+    input.fileName === '.' ||
+    input.fileName === '..'
+  ) {
+    throw new AppError(
+      400,
+      'manual_payment_proof_invalid_storage_path',
+      'Le chemin de preuve image ne correspond pas au paiement et au locataire.',
+    );
+  }
+}
+
+function addHours(date: Date, hours: number) {
+  return new Date(date.getTime() + hours * 60 * 60 * 1000);
+}
+
+function sanitizeReferencePart(value: string, fallback: string) {
+  const normalized = value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .toUpperCase();
+
+  return normalized.length > 0 ? normalized.slice(0, 6) : fallback;
+}
+
+function periodCodeFromMonthKey(monthKey: string) {
+  const monthCodes = [
+    'JAN',
+    'FEV',
+    'MAR',
+    'AVR',
+    'MAI',
+    'JUN',
+    'JUL',
+    'AOU',
+    'SEP',
+    'OCT',
+    'NOV',
+    'DEC',
+  ];
+  const match = /^(\d{4})-(\d{2})$/.exec(monthKey);
+
+  if (!match) {
+    return sanitizeReferencePart(monthKey, 'PERIOD');
+  }
+
+  const monthIndex = Number.parseInt(match[2]!, 10) - 1;
+  const yearSuffix = match[1]!.slice(2);
+
+  return `${monthCodes[monthIndex] ?? 'PER'}${yearSuffix}`;
+}
+
+function buildAtouPayReference(input: {
+  monthKey: string;
+  randomSuffix?: string;
+  unitLabel?: string | null;
+  unitId: string;
+}) {
+  const unitPart = sanitizeReferencePart(input.unitLabel ?? input.unitId, 'UNIT');
+  const periodPart = periodCodeFromMonthKey(input.monthKey);
+  const suffix = sanitizeReferencePart(
+    input.randomSuffix ?? randomUUID().replace(/-/g, '').slice(0, 3),
+    'REF',
+  ).slice(0, 3);
+
+  return `ATP-${unitPart}-${periodPart}-${suffix}`;
+}
+
+function resolvePaymentAtouPayReference(payment: RentPaymentDoc) {
+  return payment.atouPayReference ?? buildAtouPayReference({
+    monthKey: payment.monthKey,
+    randomSuffix: payment.providerReference ?? payment.tenantId.slice(-3),
+    unitId: payment.unitId,
+  });
+}
+
+function getPaymentExpectedAmount(payment: RentPaymentDoc) {
+  return payment.rentAmount ?? payment.grossAmount;
+}
+
+function normalizeSubmittedPaymentMethod(value: unknown): ManualPaymentProofSubmittedMethod {
+  return value === 'bankily' ||
+    value === 'sedad' ||
+    value === 'masrvi' ||
+    value === 'bank_transfer' ||
+    value === 'cash' ||
+    value === 'cheque' ||
+    value === 'other'
+    ? value
+    : 'bankily';
+}
+
+function evaluateManualPaymentProof(input: {
+  expectedAmount: number;
+  expectedCurrency: 'MRU';
+  expectedReference: string;
+  hasImageProof: boolean;
+  now: Date;
+  submittedAmount: number;
+  submittedCurrency: 'MRU';
+  submittedPaymentDate: string;
+  submittedPaymentReference: string;
+  submittedTransactionReference: string | null;
+}) {
+  const warnings: string[] = [];
+  const referenceMatches =
+    input.submittedPaymentReference.trim().toUpperCase() ===
+    input.expectedReference.trim().toUpperCase();
+  const amountMatches = input.submittedAmount === input.expectedAmount;
+  const currencyMatches = input.submittedCurrency === input.expectedCurrency;
+  const submittedDate = new Date(`${input.submittedPaymentDate}T00:00:00.000Z`);
+  const dateLooksValid =
+    /^\d{4}-\d{2}-\d{2}$/.test(input.submittedPaymentDate) &&
+    !Number.isNaN(submittedDate.getTime()) &&
+    submittedDate.getTime() <= input.now.getTime();
+
+  if (!referenceMatches) {
+    warnings.push('La référence ATouPay saisie ne correspond pas au paiement attendu.');
+  }
+
+  if (!amountMatches) {
+    warnings.push('Le montant déclaré ne correspond pas au loyer attendu.');
+  }
+
+  if (!currencyMatches) {
+    warnings.push('La devise déclarée ne correspond pas à la devise attendue.');
+  }
+
+  if (!dateLooksValid) {
+    warnings.push('La date déclarée est invalide ou future.');
+  }
+
+  if (!input.submittedTransactionReference && !input.hasImageProof) {
+    warnings.push('Aucune référence transactionnelle ni image de preuve n’a été fournie.');
+  }
+
+  let riskLevel: ManualPaymentProofRiskLevel = 'medium';
+
+  if (
+    referenceMatches &&
+    amountMatches &&
+    currencyMatches &&
+    dateLooksValid &&
+    (input.submittedTransactionReference || input.hasImageProof)
+  ) {
+    riskLevel = 'low';
+  }
+
+  if (
+    !referenceMatches ||
+    !amountMatches ||
+    !currencyMatches ||
+    !dateLooksValid ||
+    (!input.submittedTransactionReference && !input.hasImageProof)
+  ) {
+    riskLevel = 'high';
+  }
+
+  return {
+    amountMatches,
+    currencyMatches,
+    dateLooksValid,
+    hasImageProof: input.hasImageProof,
+    referenceMatches,
+    riskLevel,
+    warnings,
+  } satisfies ManualPaymentProofCheckResultDoc;
 }
 
 function normalizePhoneNumber(value: string | null | undefined) {
@@ -873,7 +1228,9 @@ function receiptOutputFromDoc(doc: ReceiptDoc): ReceiptOutput {
     issuedAt: doc.issuedAt,
     issuedBy: runtimeDoc.issuedBy === 'backend' ? runtimeDoc.issuedBy : 'backend',
     issuanceSource:
-      runtimeDoc.issuanceSource === 'simulate-complete'
+      runtimeDoc.issuanceSource === 'simulate-complete' ||
+      runtimeDoc.issuanceSource === 'provider-confirmed' ||
+      runtimeDoc.issuanceSource === 'manual-confirmed'
         ? runtimeDoc.issuanceSource
         : 'simulate-complete',
     ownerDisplayName: doc.ownerDisplayName,
@@ -891,6 +1248,11 @@ function receiptOutputFromDoc(doc: ReceiptDoc): ReceiptOutput {
         : doc.paidAt
           ? 'paid'
           : 'pending',
+    ...(runtimeDoc.provider ? { provider: runtimeDoc.provider } : {}),
+    ...(runtimeDoc.providerConfirmationMessage
+      ? { providerConfirmationMessage: runtimeDoc.providerConfirmationMessage }
+      : {}),
+    ...(runtimeDoc.providerReference ? { providerReference: runtimeDoc.providerReference } : {}),
     propertyId: doc.propertyId,
     propertyLabel: doc.propertyLabel,
     qrVerificationToken: doc.qrVerificationToken,
@@ -908,19 +1270,105 @@ function receiptOutputFromDoc(doc: ReceiptDoc): ReceiptOutput {
 function supportRequestOutputFromDoc(id: string, doc: SupportRequestDoc): SupportRequestOutput {
   return {
     agencyId: doc.agencyId,
+    ...(doc.agencyEscalationAvailable !== undefined
+      ? { agencyEscalationAvailable: doc.agencyEscalationAvailable }
+      : {}),
+    ...(doc.agencyEscalationAvailableAt !== undefined
+      ? { agencyEscalationAvailableAt: doc.agencyEscalationAvailableAt }
+      : {}),
     category: doc.category,
     contactEmail: doc.contactEmail,
     createdAt: doc.createdAt,
     description: doc.description,
+    ...(doc.expectedAmount !== undefined ? { expectedAmount: doc.expectedAmount } : {}),
+    ...(doc.expectedAtouPayReference !== undefined
+      ? { expectedAtouPayReference: doc.expectedAtouPayReference }
+      : {}),
+    ...(doc.expectedCurrency !== undefined ? { expectedCurrency: doc.expectedCurrency } : {}),
     id,
+    ...(doc.manualPaymentMethod !== undefined
+      ? { manualPaymentMethod: doc.manualPaymentMethod }
+      : {}),
+    ...(doc.manualProofReviewNote !== undefined
+      ? { manualProofReviewNote: doc.manualProofReviewNote }
+      : {}),
+    ...(doc.manualProofReviewedAt !== undefined
+      ? { manualProofReviewedAt: doc.manualProofReviewedAt }
+      : {}),
+    ...(doc.manualProofReviewedByUserId !== undefined
+      ? { manualProofReviewedByUserId: doc.manualProofReviewedByUserId }
+      : {}),
+    ...(doc.manualProofStatus !== undefined
+      ? { manualProofStatus: doc.manualProofStatus }
+      : {}),
+    ...(doc.ownerLastReminderAt !== undefined
+      ? { ownerLastReminderAt: doc.ownerLastReminderAt }
+      : {}),
+    ...(doc.ownerReminderCount !== undefined
+      ? { ownerReminderCount: doc.ownerReminderCount }
+      : {}),
+    ...(doc.ownerReviewRequestedAt !== undefined
+      ? { ownerReviewRequestedAt: doc.ownerReviewRequestedAt }
+      : {}),
+    ...(doc.ownerReviewStatus !== undefined
+      ? { ownerReviewStatus: doc.ownerReviewStatus }
+      : {}),
     paymentId: doc.paymentId,
     phoneNumber: doc.phoneNumber,
+    ...(doc.proofCheckResult !== undefined
+      ? { proofCheckResult: doc.proofCheckResult }
+      : {}),
+    ...(doc.proofImageContentType !== undefined
+      ? { proofImageContentType: doc.proofImageContentType }
+      : {}),
+    ...(doc.proofImageFileName !== undefined
+      ? { proofImageFileName: doc.proofImageFileName }
+      : {}),
+    ...(doc.proofImageOriginalFileName !== undefined
+      ? { proofImageOriginalFileName: doc.proofImageOriginalFileName }
+      : {}),
+    ...(doc.proofImageSizeBytes !== undefined
+      ? { proofImageSizeBytes: doc.proofImageSizeBytes }
+      : {}),
+    ...(doc.proofImageStoragePath !== undefined
+      ? { proofImageStoragePath: doc.proofImageStoragePath }
+      : {}),
+    ...(doc.proofImageUrl !== undefined
+      ? { proofImageUrl: doc.proofImageUrl }
+      : {}),
+    ...(doc.proofNote !== undefined ? { proofNote: doc.proofNote } : {}),
+    ...(doc.proofSubmittedAt !== undefined
+      ? { proofSubmittedAt: doc.proofSubmittedAt }
+      : {}),
+    ...(doc.proofTransactionReference !== undefined
+      ? { proofTransactionReference: doc.proofTransactionReference }
+      : {}),
     recoveryContactPreference: doc.recoveryContactPreference,
     requestorDisplayName: doc.requestorDisplayName,
     requestorRole: doc.requestorRole,
     resolutionNote: doc.resolutionNote,
     resolvedAt: doc.resolvedAt,
     status: doc.status,
+    ...(doc.submittedAmount !== undefined ? { submittedAmount: doc.submittedAmount } : {}),
+    ...(doc.submittedCurrency !== undefined
+      ? { submittedCurrency: doc.submittedCurrency }
+      : {}),
+    ...(doc.submittedNote !== undefined ? { submittedNote: doc.submittedNote } : {}),
+    ...(doc.submittedPaymentDate !== undefined
+      ? { submittedPaymentDate: doc.submittedPaymentDate }
+      : {}),
+    ...(doc.submittedPaymentMethod !== undefined
+      ? { submittedPaymentMethod: doc.submittedPaymentMethod }
+      : {}),
+    ...(doc.submittedPaymentReference !== undefined
+      ? { submittedPaymentReference: doc.submittedPaymentReference }
+      : {}),
+    ...(doc.submittedPaymentTime !== undefined
+      ? { submittedPaymentTime: doc.submittedPaymentTime }
+      : {}),
+    ...(doc.submittedTransactionReference !== undefined
+      ? { submittedTransactionReference: doc.submittedTransactionReference }
+      : {}),
     subject: doc.subject,
     updatedAt: doc.updatedAt,
     userId: doc.userId,
@@ -961,6 +1409,10 @@ export class BackendService {
 
   private readonly config: AppConfig;
 
+  private readonly paymentService: PaymentService;
+
+  private readonly paymentWebhookService: PaymentWebhookService;
+
   private readonly now: () => Date;
 
   private readonly repository: DataRepository;
@@ -974,6 +1426,45 @@ export class BackendService {
     this.repository = options.repository;
     this.billingService = new OwnerBillingService({
       now: this.now,
+      repository: this.repository,
+    });
+    const paymentRuntimeConfig = getPaymentRuntimeConfig(this.config);
+    this.paymentService = new PaymentService({
+      config: this.config,
+      ...(options.moosylHttpClient ? { moosylHttpClient: options.moosylHttpClient } : {}),
+      now: this.now,
+      ...(options.paymentProviders ? { providers: options.paymentProviders } : {}),
+      repository: this.repository,
+    });
+    const moosylProvider =
+      options.paymentProviders?.moosyl ??
+      (paymentRuntimeConfig.moosyl
+        ? new MoosylPaymentProvider({
+            ...(options.moosylHttpClient ? { httpClient: options.moosylHttpClient } : {}),
+            publishableKey: paymentRuntimeConfig.moosyl.publishableKey,
+            secretKey: paymentRuntimeConfig.moosyl.secretKey,
+            webhookSecret: paymentRuntimeConfig.moosyl.webhookSecret,
+          })
+        : {
+            name: 'moosyl' as const,
+            async createRentPaymentIntent() {
+              throw new AppError(
+                500,
+                'payment_provider_config_missing',
+                'La configuration Moosyl du backend est incomplète.',
+              );
+            },
+            async getPaymentStatus() {
+              return { status: 'failed' as const };
+            },
+            async verifyWebhook() {
+              return { signatureValid: false };
+            },
+          });
+    this.paymentWebhookService = new PaymentWebhookService({
+      moosylProvider,
+      now: this.now,
+      paymentService: this.paymentService,
       repository: this.repository,
     });
   }
@@ -1272,7 +1763,7 @@ export class BackendService {
               createdAt,
               existing: existingUser,
               identity,
-              ownerId: null,
+              ownerId: existingUser?.role === 'tenant' ? existingUser.ownerId ?? null : null,
               role: 'tenant',
               status: 'active',
               updatedAt: createdAt,
@@ -1283,6 +1774,11 @@ export class BackendService {
       if (input.role === 'owner' && nextUser.status === 'active') {
         const ownerDoc: OwnerDoc = {
           agencyId: nextUser.agencyId ?? existingOwner?.agencyId ?? null,
+          bankilyDeepLinkTemplate: existingOwner?.bankilyDeepLinkTemplate ?? null,
+          bankilyIntegrationMode: existingOwner?.bankilyIntegrationMode ?? 'qr_or_code_manual',
+          bankilyMerchantCode: existingOwner?.bankilyMerchantCode ?? null,
+          bankilyPhoneNumber: existingOwner?.bankilyPhoneNumber ?? null,
+          bankilyQrImageUrl: existingOwner?.bankilyQrImageUrl ?? null,
           createdAt: existingOwner?.createdAt ?? createdAt,
           displayName: nextUser.displayName,
           updatedAt: createdAt,
@@ -1546,6 +2042,311 @@ export class BackendService {
     });
   }
 
+  async submitManualRentPaymentProof(
+    identity: AuthContext,
+    paymentId: string,
+    input: SubmitManualRentPaymentProofInput,
+  ): Promise<SupportRequestOutput> {
+    const timestamp = this.now().toISOString();
+    const submittedPaymentReference = normalizeNullableString(input.submittedPaymentReference);
+    const submittedTransactionReference =
+      normalizeNullableString(input.submittedTransactionReference) ??
+      normalizeNullableString(input.providerReference);
+    const proofNote =
+      normalizeNullableString(input.submittedNote) ??
+      normalizeNullableString(input.note);
+    const proofImageUrl = normalizeNullableString(input.proofImageUrl);
+    const proofImageStoragePath =
+      normalizeNullableString(input.submittedProofImageStoragePath) ??
+      normalizeNullableString(input.proofImageStoragePath);
+    const proofImageFileName =
+      normalizeNullableString(input.submittedProofImageFileName) ??
+      normalizeNullableString(input.proofImageFileName);
+    const proofImageOriginalFileName =
+      normalizeNullableString(input.submittedProofImageOriginalFileName) ??
+      normalizeNullableString(input.proofImageOriginalFileName);
+    const proofImageSizeBytes = input.submittedProofImageSize ?? input.proofImageSizeBytes ?? null;
+    const proofImageContentType =
+      normalizeNullableString(input.submittedProofImageContentType) ??
+      normalizeNullableString(input.proofImageContentType);
+    const submittedPaymentDate = normalizeNullableString(input.submittedPaymentDate);
+    const submittedPaymentTime = normalizeNullableString(input.submittedPaymentTime);
+    const submittedPaymentMethod = normalizeSubmittedPaymentMethod(
+      input.submittedPaymentMethod ?? input.paymentMethod,
+    );
+    const paymentMethod =
+      submittedPaymentMethod === 'bankily'
+        ? 'Bankily'
+        : submittedPaymentMethod;
+    const hasProofImageMetadata = hasManualProofImageMetadata(input);
+
+    if (!submittedPaymentReference) {
+      throw new AppError(
+        400,
+        'manual_payment_reference_required',
+        'La référence ATouPay du paiement est requise pour transmettre une preuve.',
+      );
+    }
+
+    if (typeof input.submittedAmount !== 'number' || !Number.isFinite(input.submittedAmount)) {
+      throw new AppError(
+        400,
+        'manual_payment_amount_required',
+        'Le montant payé déclaré est requis pour transmettre une preuve.',
+      );
+    }
+
+    if (input.submittedCurrency !== 'MRU') {
+      throw new AppError(
+        400,
+        'manual_payment_currency_required',
+        'La devise MRU est requise pour transmettre une preuve de paiement direct.',
+      );
+    }
+
+    if (!submittedPaymentDate) {
+      throw new AppError(
+        400,
+        'manual_payment_date_required',
+        'La date du paiement déclaré est requise pour transmettre une preuve.',
+      );
+    }
+
+    const submittedAmount = input.submittedAmount;
+    const submittedCurrency = input.submittedCurrency;
+
+    if (!submittedTransactionReference && !proofNote && !hasProofImageMetadata) {
+      throw new AppError(
+        400,
+        'manual_payment_proof_empty',
+        'Ajoutez une référence transactionnelle, une note ou une preuve image avant de soumettre.',
+      );
+    }
+
+    return this.repository.runTransaction(async (transaction) => {
+      const tenantUser = assertActiveTenant(await transaction.getUser(identity.uid));
+      const payment = await transaction.getPayment(paymentId);
+
+      if (!payment) {
+        throw new AppError(404, 'payment_not_found', 'Le paiement demandé est introuvable.');
+      }
+
+      if (tenantUser.tenantId !== payment.tenantId) {
+        throw new AppError(
+          403,
+          'forbidden_payment_scope',
+          'Ce paiement ne peut pas être déclaré depuis ce compte locataire.',
+        );
+      }
+
+      if (payment.paymentStatus === 'paid' || payment.receiptId) {
+        throw new AppError(
+          409,
+          'payment_already_paid',
+          'Ce paiement dispose déjà d’un reçu et ne peut plus recevoir de preuve manuelle.',
+        );
+      }
+
+      if (payment.paymentStatus !== 'pending' && payment.paymentStatus !== 'late') {
+        throw new AppError(
+          409,
+          'payment_not_payable',
+          'Ce paiement ne peut pas recevoir de preuve manuelle dans son état actuel.',
+        );
+      }
+
+      const owner = await transaction.getOwner(payment.ownerId);
+      const mode = owner?.bankilyIntegrationMode ?? 'qr_or_code_manual';
+      const paymentMethodStatus = owner?.bankilyPaymentMethodStatus ?? 'draft';
+
+      if (mode === 'not_configured' || mode === 'moosyl_provider') {
+        throw new AppError(
+          409,
+          'manual_payment_mode_not_available',
+          'Ce propriétaire n’accepte pas de preuve Bankily manuelle pour ce paiement.',
+        );
+      }
+
+      if (mode === 'deep_link_confirmed') {
+        throw new AppError(
+          409,
+          'manual_payment_requires_backend_verification',
+          'Ce mode Bankily exige une vérification backend avant confirmation.',
+        );
+      }
+
+      if (mode === 'deep_link_unverified' && this.config.appVariant === 'production') {
+        throw new AppError(
+          403,
+          'manual_payment_experimental_blocked',
+          'Le mode Bankily expérimental est bloqué en production.',
+        );
+      }
+
+      if (submittedPaymentMethod === 'bankily' && paymentMethodStatus !== 'verified') {
+        throw new AppError(
+          409,
+          'owner_payment_method_not_verified',
+          'Le paiement direct n’est pas encore configuré pour ce logement. Contactez l’agence.',
+        );
+      }
+
+      const agencyId = payment.agencyId ?? tenantUser.agencyId ?? null;
+
+      if (hasProofImageMetadata) {
+        validateManualProofImageMetadata({
+          agencyId,
+          contentType: proofImageContentType,
+          fileName: proofImageFileName,
+          paymentId,
+          proofImageUrl,
+          sizeBytes: proofImageSizeBytes,
+          storagePath: proofImageStoragePath,
+          tenantId: payment.tenantId,
+        });
+      }
+
+      const expectedAtouPayReference = resolvePaymentAtouPayReference(payment);
+      const expectedAmount = getPaymentExpectedAmount(payment);
+      const proofCheckResult = evaluateManualPaymentProof({
+        expectedAmount,
+        expectedCurrency: 'MRU',
+        expectedReference: expectedAtouPayReference,
+        hasImageProof: Boolean(proofImageStoragePath),
+        now: this.now(),
+        submittedAmount,
+        submittedCurrency,
+        submittedPaymentDate,
+        submittedPaymentReference,
+        submittedTransactionReference,
+      });
+      const requestId = randomUUID();
+      const agencyEscalationAvailableAt = addHours(
+        this.now(),
+        OWNER_PROOF_REVIEW_ESCALATION_HOURS,
+      ).toISOString();
+      const description = [
+        'Preuve Bankily/direct déclarée par le locataire.',
+        `Paiement ATouPay: ${paymentId}`,
+        `Référence ATouPay attendue: ${expectedAtouPayReference}`,
+        `Référence ATouPay saisie: ${submittedPaymentReference}`,
+        submittedTransactionReference ? `Référence transactionnelle déclarée: ${submittedTransactionReference}` : null,
+        `Montant déclaré: ${submittedAmount} MRU`,
+        `Date déclarée: ${submittedPaymentDate}${submittedPaymentTime ? ` ${submittedPaymentTime}` : ''}`,
+        `Niveau de risque: ${proofCheckResult.riskLevel}`,
+        proofCheckResult.warnings.length > 0
+          ? `Alertes: ${proofCheckResult.warnings.join(' | ')}`
+          : null,
+        proofNote ? `Note locataire: ${proofNote}` : null,
+        proofImageFileName ? `Fichier preuve: ${proofImageFileName}` : null,
+        proofImageOriginalFileName ? `Fichier original: ${proofImageOriginalFileName}` : null,
+        proofImageSizeBytes ? `Taille preuve: ${proofImageSizeBytes}` : null,
+        proofImageStoragePath ? `Chemin stockage: ${proofImageStoragePath}` : null,
+        'Cette preuve est un support de revue, pas une confirmation prestataire.',
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      const supportRequest: SupportRequestDoc = {
+        agencyId,
+        agencyEscalationAvailable: false,
+        agencyEscalationAvailableAt,
+        category: 'payment_problem',
+        contactEmail: tenantUser.email,
+        createdAt: timestamp,
+        description,
+        expectedAmount,
+        expectedAtouPayReference,
+        expectedCurrency: 'MRU',
+        manualPaymentMethod: paymentMethod,
+        manualProofReviewNote: null,
+        manualProofReviewedAt: null,
+        manualProofReviewedByUserId: null,
+        manualProofStatus: 'submitted',
+        ownerLastReminderAt: null,
+        ownerReminderCount: 0,
+        ownerReviewRequestedAt: timestamp,
+        ownerReviewStatus: 'waiting_owner_review',
+        paymentId,
+        phoneNumber: tenantUser.phoneNumber,
+        proofCheckResult,
+        proofImageContentType,
+        proofImageFileName,
+        proofImageOriginalFileName,
+        proofImageSizeBytes,
+        proofImageStoragePath,
+        proofNote,
+        proofSubmittedAt: timestamp,
+        proofTransactionReference: submittedTransactionReference,
+        recoveryContactPreference: tenantUser.recoveryContactPreference,
+        requestorDisplayName: tenantUser.displayName,
+        requestorRole: 'tenant',
+        resolutionNote: null,
+        resolvedAt: null,
+        status: 'submitted',
+        submittedAmount,
+        submittedCurrency,
+        submittedNote: proofNote,
+        submittedPaymentDate,
+        submittedPaymentMethod,
+        submittedPaymentReference,
+        submittedPaymentTime,
+        submittedTransactionReference,
+        subject: 'Preuve de paiement Bankily à confirmer',
+        updatedAt: timestamp,
+        userId: tenantUser.uid,
+      };
+
+      transaction.setSupportRequest(requestId, supportRequest);
+      transaction.updateUser(tenantUser.uid, {
+        updatedAt: timestamp,
+      });
+      this.recordAudit(transaction, {
+        actor: tenantUser,
+        agencyId,
+        entityId: requestId,
+        entityType: 'supportRequest',
+        eventType: 'support_request_created',
+        metadata: {
+          category: 'payment_problem',
+          hasProofImage: Boolean(proofImageUrl || proofImageStoragePath),
+          paymentId,
+          proofOnly: true,
+          riskLevel: proofCheckResult.riskLevel,
+        },
+        targetUid: tenantUser.uid,
+        timestamp,
+      });
+
+      this.createNotification(transaction, {
+        agencyId,
+        body: `${tenantUser.displayName} a soumis une preuve Bankily à vérifier.`,
+        relatedEntityId: requestId,
+        relatedEntityType: 'supportRequest',
+        role: 'owner',
+        timestamp,
+        title: 'Preuve paiement à vérifier',
+        type: 'support_request_status_changed',
+        userId: payment.ownerId,
+      });
+
+      if (agencyId) {
+        this.createNotification(transaction, {
+          agencyId,
+          body: `${tenantUser.displayName} a soumis une preuve Bankily à vérifier.`,
+          relatedEntityId: requestId,
+          relatedEntityType: 'supportRequest',
+          role: 'agency_admin',
+          timestamp,
+          title: 'Preuve paiement à vérifier',
+          type: 'support_request_status_changed',
+        });
+      }
+
+      return supportRequestOutputFromDoc(requestId, supportRequest);
+    });
+  }
+
   async createRecoverySupportRequest(
     input: CreateRecoverySupportRequestInput,
   ): Promise<SupportRequestOutput> {
@@ -1645,6 +2446,32 @@ export class BackendService {
       );
     }
 
+    if (user.role === 'owner' && user.ownerId && user.agencyId) {
+      const requestsByAgency = await this.repository.listSupportRequestsByAgency(user.agencyId);
+      const visibleRequests: Array<{ doc: SupportRequestDoc; id: string }> = [];
+
+      for (const request of requestsByAgency) {
+        if (request.doc.userId === user.uid) {
+          visibleRequests.push(request);
+          continue;
+        }
+
+        if (!request.doc.paymentId) {
+          continue;
+        }
+
+        const payment = await this.repository.getPayment(request.doc.paymentId);
+
+        if (payment?.ownerId === user.ownerId) {
+          visibleRequests.push(request);
+        }
+      }
+
+      return visibleRequests
+        .map(({ doc, id }) => supportRequestOutputFromDoc(id, doc))
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    }
+
     const requests =
       user.role === 'agency_admin' && user.agencyId
         ? await this.repository.listSupportRequestsByAgency(user.agencyId)
@@ -1742,6 +2569,423 @@ export class BackendService {
         status: nextStatus,
         updatedAt: timestamp,
       });
+    });
+  }
+
+  async reviewManualRentPaymentProof(
+    identity: AuthContext,
+    requestId: string,
+    input: ReviewManualRentPaymentProofInput,
+  ): Promise<SupportRequestOutput> {
+    const timestamp = this.now().toISOString();
+    const reviewNote = normalizeNullableString(input.note);
+    const overrideReason = normalizeNullableString(input.overrideReason);
+    const settlementNote = normalizeNullableString(input.settlementNote);
+
+    const preflight = await this.repository.runTransaction(async (transaction) => {
+      const actor = await transaction.getUser(identity.uid);
+
+      if (!actor) {
+        throw new AppError(
+          409,
+          'profile_not_bootstrapped',
+          'Le profil applicatif ATouPay doit être initialisé avant cette opération.',
+        );
+      }
+
+      const supportRequest = await transaction.getSupportRequest(requestId);
+
+      if (!supportRequest) {
+        throw new AppError(404, 'support_request_not_found', 'La demande de support est introuvable.');
+      }
+
+      if (!supportRequest.paymentId || !supportRequest.manualProofStatus) {
+        throw new AppError(
+          409,
+          'manual_payment_proof_missing',
+          'Cette demande ne contient pas de preuve de paiement manuel à revoir.',
+        );
+      }
+
+      const payment = await transaction.getPayment(supportRequest.paymentId);
+
+      if (!payment) {
+        throw new AppError(404, 'payment_not_found', 'Le paiement lié à la preuve est introuvable.');
+      }
+
+      if (
+        input.decision !== 'confirmed' &&
+        (payment.paymentStatus === 'paid' || payment.receiptId)
+      ) {
+        throw new AppError(
+          409,
+          'payment_already_paid',
+          'Ce paiement est déjà confirmé et ne peut pas être rejeté ou contesté.',
+        );
+      }
+
+      if (actor.role === 'owner') {
+        const owner = assertActiveOwner(actor);
+        if (owner.ownerId !== payment.ownerId) {
+          throw new AppError(
+            403,
+            'forbidden_payment_scope',
+            'Cette preuve ne vous est pas accessible.',
+          );
+        }
+        if (input.decision === 'confirmed' && supportRequest.proofCheckResult?.riskLevel === 'high') {
+          throw new AppError(
+            403,
+            'manual_payment_high_risk_requires_agency',
+            'Cette preuve présente un risque élevé et doit être revue par l’agence.',
+          );
+        }
+      } else if (actor.role === 'agency_admin') {
+        const admin = assertAgencyAdmin(actor);
+        if (admin.agencyId !== payment.agencyId) {
+          throw new AppError(
+            403,
+            'forbidden_agency_scope',
+            'Cette preuve n’appartient pas à votre agence.',
+          );
+        }
+        if (input.decision === 'confirmed') {
+          const ownerUser = await transaction.getUser(payment.ownerId);
+          const highRisk = supportRequest.proofCheckResult?.riskLevel === 'high';
+          const escalationAvailable =
+            supportRequest.agencyEscalationAvailable === true ||
+            (supportRequest.agencyEscalationAvailableAt
+              ? new Date(supportRequest.agencyEscalationAvailableAt).getTime() <=
+                this.now().getTime()
+              : false);
+          const ownerInactive = ownerUser?.status !== 'active';
+          const proofDisputed =
+            supportRequest.manualProofStatus === 'disputed' ||
+            supportRequest.ownerReviewStatus === 'disputed';
+
+          if (highRisk && !overrideReason) {
+            throw new AppError(
+              400,
+              'manual_payment_high_risk_override_required',
+              'Une raison de dérogation agence est requise pour confirmer une preuve à risque élevé.',
+            );
+          }
+
+          if (!escalationAvailable && !ownerInactive && !proofDisputed && !highRisk) {
+            throw new AppError(
+              403,
+              'manual_payment_agency_review_not_available',
+              'La validation agence sera disponible après escalade, blocage propriétaire ou litige.',
+            );
+          }
+        }
+      } else {
+        throw new AppError(
+          403,
+          'forbidden_role',
+          'Seul le propriétaire ou l’agence peut revoir une preuve de paiement manuel.',
+        );
+      }
+
+      return {
+        actor,
+        paymentId: supportRequest.paymentId,
+        paymentMethod: supportRequest.manualPaymentMethod ?? 'Bankily',
+        providerReference: supportRequest.proofTransactionReference ?? null,
+      };
+    });
+
+    if (input.decision === 'confirmed') {
+      await this.confirmManualRentPayment(identity, {
+        confirmationSource: preflight.actor.role === 'agency_admin' ? 'agency' : 'owner',
+        note: reviewNote,
+        paymentId: preflight.paymentId,
+        paymentMethod: preflight.paymentMethod,
+        providerReference: preflight.providerReference,
+        settlementNote,
+      });
+    }
+
+    return this.repository.runTransaction(async (transaction) => {
+      const actor = await transaction.getUser(identity.uid);
+      const supportRequest = await transaction.getSupportRequest(requestId);
+
+      if (!actor) {
+        throw new AppError(
+          409,
+          'profile_not_bootstrapped',
+          'Le profil applicatif ATouPay doit être initialisé avant cette opération.',
+        );
+      }
+
+      if (!supportRequest) {
+        throw new AppError(404, 'support_request_not_found', 'La demande de support est introuvable.');
+      }
+
+      const nextStatus = input.decision === 'rejected' ? 'resolved' : 'in_progress';
+      const resolutionNote =
+        reviewNote ??
+        (input.decision === 'confirmed'
+          ? preflight.actor.role === 'agency_admin'
+            ? 'Paiement déclaré par le locataire et confirmé par l’agence après vérification.'
+            : 'Paiement déclaré par le locataire et confirmé par le propriétaire.'
+          : input.decision === 'rejected'
+            ? 'Preuve de paiement rejetée après revue.'
+            : 'Preuve de paiement contestée et maintenue en revue.');
+      const resolvedAt =
+        input.decision === 'confirmed' || input.decision === 'rejected' ? timestamp : null;
+      const status =
+        input.decision === 'confirmed'
+          ? 'resolved'
+          : nextStatus;
+      const ownerReviewStatus =
+        input.decision === 'confirmed'
+          ? 'confirmed'
+          : input.decision === 'rejected'
+            ? 'rejected'
+            : 'disputed';
+
+      transaction.updateSupportRequest(requestId, {
+        agencyEscalationAvailable:
+          supportRequest.agencyEscalationAvailable ||
+          preflight.actor.role === 'agency_admin' ||
+          ownerReviewStatus === 'disputed',
+        manualProofReviewNote: resolutionNote,
+        manualProofReviewedAt: timestamp,
+        manualProofReviewedByUserId: actor.uid,
+        manualProofStatus: input.decision,
+        ownerReviewStatus,
+        resolutionNote,
+        resolvedAt,
+        status,
+        updatedAt: timestamp,
+      });
+      this.recordAudit(transaction, {
+        actor,
+        agencyId: supportRequest.agencyId,
+        entityId: requestId,
+        entityType: 'supportRequest',
+        eventType: 'support_request_updated',
+        metadata: {
+          decision: input.decision,
+          overrideProvided: Boolean(overrideReason),
+          paymentId: supportRequest.paymentId,
+          proofOnly: true,
+        },
+        targetUid: supportRequest.userId,
+        timestamp,
+      });
+
+      if (supportRequest.userId) {
+        this.createNotification(transaction, {
+          agencyId: supportRequest.agencyId,
+          body:
+            input.decision === 'rejected'
+              ? 'Votre preuve de paiement a été rejetée après revue. Aucun reçu n’a été généré.'
+              : input.decision === 'confirmed'
+                ? 'Votre paiement manuel a été confirmé. Le reçu est disponible.'
+                : 'Votre preuve de paiement est contestée et reste en revue. Aucun reçu n’a été généré.',
+          relatedEntityId: requestId,
+          relatedEntityType: 'supportRequest',
+          role: 'tenant',
+          timestamp,
+          title:
+            input.decision === 'rejected'
+              ? 'Preuve paiement rejetée'
+              : input.decision === 'confirmed'
+                ? 'Paiement confirmé'
+                : 'Preuve paiement contestée',
+          type: 'support_request_status_changed',
+          userId: supportRequest.userId,
+        });
+      }
+
+      return supportRequestOutputFromDoc(requestId, {
+        ...supportRequest,
+        manualProofReviewNote: resolutionNote,
+        manualProofReviewedAt: timestamp,
+        manualProofReviewedByUserId: actor.uid,
+        manualProofStatus: input.decision,
+        ownerReviewStatus,
+        resolutionNote,
+        resolvedAt,
+        status,
+        updatedAt: timestamp,
+      });
+    });
+  }
+
+  async runManualProofReminderTask(): Promise<{
+    escalationsMarked: number;
+    remindersCreated: number;
+    scanned: number;
+  }> {
+    const now = this.now();
+    const timestamp = now.toISOString();
+    const requests = await this.repository.listSupportRequests();
+    let remindersCreated = 0;
+    let escalationsMarked = 0;
+
+    for (const { doc, id } of requests) {
+      if (
+        !doc.paymentId ||
+        doc.manualProofStatus !== 'submitted' ||
+        doc.status === 'resolved' ||
+        (doc.ownerReviewStatus !== 'waiting_owner_review' &&
+          doc.ownerReviewStatus !== 'agency_escalated')
+      ) {
+        continue;
+      }
+
+      await this.repository.runTransaction(async (transaction) => {
+        const currentRequest = await transaction.getSupportRequest(id);
+
+        if (
+          !currentRequest ||
+          !currentRequest.paymentId ||
+          currentRequest.manualProofStatus !== 'submitted' ||
+          currentRequest.status === 'resolved'
+        ) {
+          return;
+        }
+
+        const payment = await transaction.getPayment(currentRequest.paymentId);
+
+        if (!payment) {
+          return;
+        }
+
+        const ownerReviewRequestedAt =
+          currentRequest.ownerReviewRequestedAt ?? currentRequest.proofSubmittedAt ?? currentRequest.createdAt;
+        const lastReminderAt = currentRequest.ownerLastReminderAt ?? ownerReviewRequestedAt;
+        const reminderDue =
+          now.getTime() - new Date(lastReminderAt).getTime() >=
+          OWNER_PROOF_REVIEW_REMINDER_HOURS * 60 * 60 * 1000;
+        const currentReminderCount = currentRequest.ownerReminderCount ?? 0;
+        const escalationDue =
+          currentRequest.agencyEscalationAvailable !== true &&
+          currentRequest.agencyEscalationAvailableAt != null &&
+          new Date(currentRequest.agencyEscalationAvailableAt).getTime() <= now.getTime();
+        const patch: Partial<SupportRequestDoc> = {
+          updatedAt: timestamp,
+        };
+
+        if (reminderDue && currentReminderCount < OWNER_PROOF_REVIEW_MAX_REMINDERS) {
+          patch.ownerLastReminderAt = timestamp;
+          patch.ownerReminderCount = currentReminderCount + 1;
+          remindersCreated += 1;
+          this.createNotification(transaction, {
+            agencyId: currentRequest.agencyId,
+            body: 'Une preuve de paiement locataire attend votre validation. Aucun reçu n’a été généré.',
+            relatedEntityId: id,
+            relatedEntityType: 'supportRequest',
+            role: 'owner',
+            timestamp,
+            title: 'Validation de preuve en attente',
+            type: 'payment_proof_reminder',
+            userId: payment.ownerId,
+          });
+        }
+
+        if (escalationDue) {
+          patch.agencyEscalationAvailable = true;
+          patch.ownerReviewStatus = 'agency_escalated';
+          escalationsMarked += 1;
+          if (currentRequest.agencyId) {
+            this.createNotification(transaction, {
+              agencyId: currentRequest.agencyId,
+              body: 'Une preuve de paiement peut maintenant être validée par l’agence si nécessaire.',
+              relatedEntityId: id,
+              relatedEntityType: 'supportRequest',
+              role: 'agency_admin',
+              timestamp,
+              title: 'Validation agence disponible',
+              type: 'support_request_status_changed',
+            });
+          }
+        }
+
+        if (
+          patch.ownerLastReminderAt ||
+          patch.agencyEscalationAvailable
+        ) {
+          transaction.updateSupportRequest(id, patch);
+          this.recordAudit(transaction, {
+            actor: null,
+            agencyId: currentRequest.agencyId,
+            entityId: id,
+            entityType: 'supportRequest',
+            eventType: 'support_request_updated',
+            metadata: {
+              escalationDue,
+              paymentId: currentRequest.paymentId,
+              reminderDue,
+            },
+            targetUid: payment.ownerId,
+            timestamp,
+          });
+        }
+      });
+    }
+
+    return {
+      escalationsMarked,
+      remindersCreated,
+      scanned: requests.length,
+    };
+  }
+
+  async reviewOwnerBankilyPaymentMethod(
+    identity: AuthContext,
+    ownerId: string,
+    input: ReviewOwnerPaymentMethodInput,
+  ): Promise<OwnerDoc & { ownerId: string }> {
+    const timestamp = this.now().toISOString();
+    const note = normalizeNullableString(input.note);
+
+    return this.repository.runTransaction(async (transaction) => {
+      const admin = assertAgencyAdmin(await transaction.getUser(identity.uid));
+      const owner = await transaction.getOwner(ownerId);
+
+      if (!owner) {
+        throw new AppError(404, 'owner_not_found', 'Le propriétaire demandé est introuvable.');
+      }
+
+      if (owner.agencyId !== admin.agencyId) {
+        throw new AppError(
+          403,
+          'forbidden_agency_scope',
+          'Ce propriétaire n’appartient pas à votre agence.',
+        );
+      }
+
+      const patch: Partial<OwnerDoc> = {
+        bankilyPaymentMethodReviewedAt: timestamp,
+        bankilyPaymentMethodReviewedByUserId: admin.uid,
+        bankilyPaymentMethodReviewNote: note,
+        bankilyPaymentMethodStatus: input.status,
+        updatedAt: timestamp,
+      };
+
+      transaction.updateOwner(ownerId, patch);
+      this.recordAudit(transaction, {
+        actor: admin,
+        agencyId: admin.agencyId,
+        entityId: ownerId,
+        entityType: 'owner',
+        eventType: 'payment_method_updated',
+        metadata: {
+          status: input.status,
+        },
+        targetUid: owner.userId,
+        timestamp,
+      });
+
+      return {
+        ...owner,
+        ...patch,
+        ownerId,
+      };
     });
   }
 
@@ -2510,10 +3754,20 @@ export class BackendService {
     });
     const owners = await this.repository.listUsersByAgency(admin.agencyId!, 'owner');
 
-    return owners
+    const visibleOwners = owners
       .filter((owner) => owner.status === 'active' || owner.status === 'suspended')
-      .map((owner) => ({
+      .sort((left, right) => left.displayName.localeCompare(right.displayName, 'fr'));
+
+    const ownerDocs = await Promise.all(
+      visibleOwners.map((owner) =>
+        owner.ownerId ? this.repository.getOwner(owner.ownerId) : Promise.resolve(null),
+      ),
+    );
+
+    return visibleOwners
+      .map((owner, index) => ({
         agencyId: owner.agencyId,
+        bankilyPaymentMethodStatus: ownerDocs[index]?.bankilyPaymentMethodStatus ?? 'draft',
         createdAt: owner.createdAt,
         displayName: owner.displayName,
         email: owner.email,
@@ -2521,8 +3775,7 @@ export class BackendService {
         status: owner.status,
         uid: owner.uid,
         updatedAt: owner.updatedAt,
-      }))
-      .sort((left, right) => left.displayName.localeCompare(right.displayName, 'fr'));
+      }));
   }
 
   async listAgencyUsers(identity: AuthContext): Promise<AgencyUserOutputItem[]> {
@@ -3058,6 +4311,11 @@ export class BackendService {
       const existingOwner = await transaction.getOwner(identity.uid);
       const ownerDoc: OwnerDoc = {
         agencyId: invite.agencyId,
+        bankilyDeepLinkTemplate: existingOwner?.bankilyDeepLinkTemplate ?? null,
+        bankilyIntegrationMode: existingOwner?.bankilyIntegrationMode ?? 'qr_or_code_manual',
+        bankilyMerchantCode: existingOwner?.bankilyMerchantCode ?? null,
+        bankilyPhoneNumber: existingOwner?.bankilyPhoneNumber ?? null,
+        bankilyQrImageUrl: existingOwner?.bankilyQrImageUrl ?? null,
         createdAt: existingOwner?.createdAt ?? timestamp,
         displayName: nextUser.displayName,
         updatedAt: timestamp,
@@ -3228,6 +4486,12 @@ export class BackendService {
       const paymentId = `rent-${tenantId}-${currentMonthKey(timestamp)}`;
       const existingPayment = await transaction.getPayment(paymentId);
       const rentLedger = calculateRentLedger(unit.rentAmount);
+      const monthKey = currentMonthKey(timestamp);
+      const atouPayReference = buildAtouPayReference({
+        monthKey,
+        unitId: invite.unitId,
+        unitLabel: unit.label,
+      });
 
       const tenantDoc: TenantDoc = {
         createdAt: nowIso,
@@ -3264,11 +4528,12 @@ export class BackendService {
         transaction.setPayment(paymentId, {
           agencyFeeAmount: rentLedger.agencyFeeAmount,
           agencyId: ownerUser.agencyId ?? null,
+          atouPayReference,
           commissionRate: rentLedger.commissionRate,
           createdAt: nowIso,
           dueDate: currentMonthDueDate(timestamp),
           grossAmount: rentLedger.grossAmount,
-          monthKey: currentMonthKey(timestamp),
+          monthKey,
           ownerId: invite.ownerId,
           ownerNetAmount: rentLedger.ownerNetAmount,
           ownerReceivableAmount: rentLedger.ownerReceivableAmount,
@@ -3346,6 +4611,52 @@ export class BackendService {
     });
   }
 
+  async createRentPaymentIntent(
+    identity: AuthContext,
+    paymentId: string,
+  ): Promise<RentPaymentIntentOutput> {
+    const currentTerms = await this.getOrCreateLegalTerms();
+
+    await this.repository.runTransaction(async (transaction) => {
+      const tenantUser = assertActiveTenant(await transaction.getUser(identity.uid));
+      await this.ensureAcceptedTerms(transaction, tenantUser, currentTerms);
+      return null;
+    });
+
+    return this.paymentService.createRentPaymentIntent(identity, paymentId);
+  }
+
+  async getRentPaymentStatus(
+    identity: AuthContext,
+    paymentId: string,
+  ): Promise<RentPaymentStatusOutput> {
+    return this.paymentService.getRentPaymentStatus(identity, paymentId);
+  }
+
+  async cancelRentPaymentIntent(
+    identity: AuthContext,
+    paymentId: string,
+  ): Promise<RentPaymentStatusOutput> {
+    const currentTerms = await this.getOrCreateLegalTerms();
+
+    await this.repository.runTransaction(async (transaction) => {
+      const tenantUser = assertActiveTenant(await transaction.getUser(identity.uid));
+      await this.ensureAcceptedTerms(transaction, tenantUser, currentTerms);
+      return null;
+    });
+
+    return this.paymentService.cancelRentPaymentIntent(identity, paymentId);
+  }
+
+  async handleMoosylWebhook(input: {
+    eventType?: string;
+    payload: unknown;
+    rawBody: Buffer;
+    signature?: string;
+  }) {
+    return this.paymentWebhookService.handleMoosylWebhook(input);
+  }
+
   async completeSimulatedPayment(
     identity: AuthContext,
     input: CompleteSimulatedPaymentInput,
@@ -3362,6 +4673,8 @@ export class BackendService {
         'Le moyen de paiement simulé est requis.',
       );
     }
+
+    await this.paymentService.completeSimulatedIntent(identity, input.paymentId);
 
     return this.repository.runTransaction(async (transaction) => {
       const tenantUser = assertActiveTenant(await transaction.getUser(identity.uid));
@@ -3532,6 +4845,217 @@ export class BackendService {
           type: 'payment_completed',
         });
       }
+
+      return {
+        payment: {
+          ...nextPayment,
+          id: input.paymentId,
+        },
+        receipt: receiptOutputFromDoc(receipt),
+      };
+    });
+  }
+
+  async confirmManualRentPayment(
+    identity: AuthContext,
+    input: ConfirmManualRentPaymentInput,
+  ): Promise<CompleteSimulatedPaymentOutput> {
+    const paidAt = this.now();
+    const paidAtIso = paidAt.toISOString();
+    const paymentMethod = input.paymentMethod?.trim() || 'Bankily';
+    const providerReference =
+      input.providerReference && input.providerReference.trim().length > 0
+        ? input.providerReference.trim()
+        : null;
+
+    return this.repository.runTransaction(async (transaction) => {
+      const actor = await transaction.getUser(identity.uid);
+
+      if (!actor) {
+        throw new AppError(
+          409,
+          'profile_not_bootstrapped',
+          'Le profil applicatif ATouPay doit être initialisé avant cette opération.',
+        );
+      }
+
+      const payment = await transaction.getPayment(input.paymentId);
+
+      if (!payment) {
+        throw new AppError(404, 'payment_not_found', 'Le paiement demandé est introuvable.');
+      }
+
+      if (actor.role === 'owner') {
+        const owner = assertActiveOwner(actor);
+        if (owner.ownerId !== payment.ownerId) {
+          throw new AppError(
+            403,
+            'forbidden_payment_scope',
+            'Ce paiement ne vous est pas accessible.',
+          );
+        }
+      } else if (actor.role === 'agency_admin') {
+        const admin = assertAgencyAdmin(actor);
+        if (admin.agencyId !== payment.agencyId) {
+          throw new AppError(
+            403,
+            'forbidden_payment_scope',
+            'Ce paiement ne vous est pas accessible.',
+          );
+        }
+      } else {
+        throw new AppError(
+          403,
+          'forbidden_role',
+          'Seul le propriétaire ou l’agence peut confirmer une preuve de paiement manuel.',
+        );
+      }
+
+      const tenant = await transaction.getTenant(payment.tenantId);
+      const owner = await transaction.getOwner(payment.ownerId);
+      const ownerUser = await transaction.getUser(payment.ownerId);
+      const property = await transaction.getProperty(payment.propertyId);
+      const unit = await transaction.getUnit(payment.unitId);
+
+      if (!tenant || !owner || !ownerUser || !property || !unit) {
+        throw new AppError(
+          409,
+          'payment_context_missing',
+          'Le contexte du paiement est incomplet. Vérifiez le rattachement du logement avant de réessayer.',
+        );
+      }
+
+      if (payment.paymentStatus === 'paid' && payment.receiptId) {
+        const existingReceipt = await transaction.getReceipt(payment.receiptId);
+
+        if (!existingReceipt) {
+          throw new AppError(
+            409,
+            'receipt_missing',
+            'Le reçu associé à ce paiement est introuvable.',
+          );
+        }
+
+        return {
+          payment: {
+            ...payment,
+            id: input.paymentId,
+          },
+          receipt: receiptOutputFromDoc(existingReceipt),
+        };
+      }
+
+      if (payment.paymentStatus !== 'pending' && payment.paymentStatus !== 'late') {
+        throw new AppError(
+          409,
+          'payment_not_payable',
+          'Ce paiement manuel ne peut pas être confirmé dans son état actuel.',
+        );
+      }
+
+      const receiptId = randomUUID();
+      const receiptNumber = buildReceiptNumber(paidAt);
+      const qrVerificationToken = createHash('sha256')
+        .update(`${input.paymentId}:${receiptId}:${paidAtIso}`)
+        .digest('hex');
+      const verificationUrl = this.buildReceiptVerificationUrl(qrVerificationToken);
+      const rentLedger = calculateRentLedger(payment.rentAmount ?? payment.grossAmount);
+      const confirmationSource =
+        input.confirmationSource ?? (actor.role === 'agency_admin' ? 'agency' : 'owner');
+      const providerConfirmationMessage =
+        confirmationSource === 'agency'
+          ? 'Paiement déclaré par le locataire et confirmé par l’agence après vérification.'
+          : 'Paiement déclaré par le locataire et confirmé par le propriétaire.';
+      const receipt: ReceiptDoc = {
+        agencyFeeAmount: 0,
+        agencyDisplayName: await this.resolveAgencyName(transaction, payment.agencyId),
+        agencyId: payment.agencyId,
+        grossAmount: rentLedger.rentAmount,
+        id: receiptId,
+        issuedAt: paidAtIso,
+        issuedBy: 'backend',
+        issuanceSource: 'manual-confirmed',
+        ownerDisplayName: owner.displayName,
+        ownerEmail: ownerUser.email,
+        ownerId: payment.ownerId,
+        ownerNetAmount: rentLedger.rentAmount,
+        paidAt: paidAtIso,
+        paymentId: input.paymentId,
+        paymentMethod,
+        paymentStatus: 'paid',
+        providerConfirmationMessage,
+        ...(providerReference ? { providerReference } : {}),
+        propertyId: payment.propertyId,
+        propertyLabel: property.label,
+        qrVerificationToken,
+        receiptNumber,
+        simulated: false,
+        tenantDisplayName: tenant.displayName,
+        tenantEmail: tenant.email,
+        tenantId: payment.tenantId,
+        unitId: payment.unitId,
+        unitLabel: unit.label,
+        verificationUrl,
+      };
+      const nextPayment: RentPaymentDoc = {
+        ...payment,
+        ...rentLedger,
+        paidAt: paidAtIso,
+        paymentMethod,
+        paymentStatus: 'paid',
+        providerReference,
+        receiptId,
+        updatedAt: paidAtIso,
+      };
+
+      transaction.setReceipt(receiptId, receipt);
+      transaction.updatePayment(input.paymentId, {
+        ...rentLedger,
+        paidAt: paidAtIso,
+        paymentMethod,
+        paymentStatus: 'paid',
+        providerReference,
+        receiptId,
+        updatedAt: paidAtIso,
+      });
+      this.recordAudit(transaction, {
+        actor,
+        agencyId: payment.agencyId,
+        entityId: input.paymentId,
+        entityType: 'rentPayment',
+        eventType: 'payment_completed',
+        metadata: {
+          confirmationMode: 'manual_bankily',
+          confirmationSource,
+          receiptId,
+          referenceProvided: Boolean(providerReference),
+          settlementNote: input.settlementNote ?? null,
+        },
+        targetUid: payment.tenantId,
+        timestamp: paidAtIso,
+      });
+      this.createNotification(transaction, {
+        agencyId: payment.agencyId,
+        body: `Paiement manuel confirmé pour ${property.label} • ${unit.label}.`,
+        relatedEntityId: input.paymentId,
+        relatedEntityType: 'rentPayment',
+        role: 'tenant',
+        timestamp: paidAtIso,
+        title: 'Paiement confirmé',
+        type: 'payment_completed',
+        userId: payment.tenantId,
+      });
+      this.createNotification(transaction, {
+        agencyId: payment.agencyId,
+        body: `Loyer confirmé manuellement: ${rentLedger.rentAmount}.`,
+        relatedEntityId: input.paymentId,
+        relatedEntityType: 'rentPayment',
+        role: 'owner',
+        timestamp: paidAtIso,
+        title: 'Loyer payé',
+        type: 'payment_completed',
+        userId: payment.ownerId,
+      });
 
       return {
         payment: {

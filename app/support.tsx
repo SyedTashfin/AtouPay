@@ -7,6 +7,7 @@ import { BannerNotice } from '@/src/components/BannerNotice';
 import { JourneyCard } from '@/src/components/JourneyCard';
 import { ListEmptyState } from '@/src/components/ListEmptyState';
 import { PrimaryButton } from '@/src/components/PrimaryButton';
+import { ProofImagePreview } from '@/src/components/ProofImagePreview';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
 import { AuthCard } from '@/src/components/auth/AuthCard';
 import { AuthField } from '@/src/components/auth/AuthField';
@@ -16,6 +17,7 @@ import {
   createSupportRequestViaBackend,
   listSupportRequestsViaBackend,
   mapBackendErrorToMessage,
+  reviewManualPaymentProofViaBackend,
 } from '@/src/services/backendApi';
 import {
   RecoveryContactPreference,
@@ -71,7 +73,22 @@ function getStatusLabel(status: SupportRequestRecord['status']) {
   return status === 'in_progress' ? 'En cours' : 'Soumis';
 }
 
-function RequestRow({ request }: { request: SupportRequestRecord }) {
+function RequestRow({
+  canReviewManualProof,
+  isReviewing,
+  onReviewProof,
+  request,
+}: {
+  canReviewManualProof: boolean;
+  isReviewing: boolean;
+  onReviewProof: (
+    requestId: string,
+    decision: 'confirmed' | 'disputed' | 'rejected',
+  ) => void;
+  request: SupportRequestRecord;
+}) {
+  const hasManualProof = Boolean(request.manualProofStatus);
+
   return (
     <View style={styles.requestCard}>
       <View style={styles.requestHeader}>
@@ -98,6 +115,74 @@ function RequestRow({ request }: { request: SupportRequestRecord }) {
       {request.paymentId ? (
         <Text style={styles.requestMeta}>{`Paiement lié: ${request.paymentId}`}</Text>
       ) : null}
+      {hasManualProof ? (
+        <View style={styles.proofBox}>
+          <Text style={styles.proofTitle}>Preuve paiement manuel</Text>
+          <Text style={styles.requestMeta}>{`Statut preuve: ${request.manualProofStatus}`}</Text>
+          {request.expectedAtouPayReference ? (
+            <Text style={styles.requestMeta}>{`Référence attendue: ${request.expectedAtouPayReference}`}</Text>
+          ) : null}
+          {request.submittedPaymentReference ? (
+            <Text style={styles.requestMeta}>{`Référence saisie: ${request.submittedPaymentReference}`}</Text>
+          ) : null}
+          {typeof request.expectedAmount === 'number' ? (
+            <Text style={styles.requestMeta}>{`Montant attendu: ${request.expectedAmount} MRU`}</Text>
+          ) : null}
+          {typeof request.submittedAmount === 'number' ? (
+            <Text style={styles.requestMeta}>{`Montant déclaré: ${request.submittedAmount} MRU`}</Text>
+          ) : null}
+          {request.submittedPaymentDate ? (
+            <Text style={styles.requestMeta}>
+              {`Date déclarée: ${request.submittedPaymentDate}${request.submittedPaymentTime ? ` ${request.submittedPaymentTime}` : ''}`}
+            </Text>
+          ) : null}
+          {request.proofCheckResult ? (
+            <View style={styles.riskBox}>
+              <Text style={styles.proofTitle}>{`Risque: ${request.proofCheckResult.riskLevel}`}</Text>
+              {request.proofCheckResult.warnings.map((warning) => (
+                <Text key={warning} style={styles.requestMeta}>{`• ${warning}`}</Text>
+              ))}
+            </View>
+          ) : null}
+          {request.proofTransactionReference ? (
+            <Text style={styles.requestMeta}>{`Référence transactionnelle: ${request.proofTransactionReference}`}</Text>
+          ) : null}
+          {request.proofNote ? (
+            <Text style={styles.requestMeta}>{`Note: ${request.proofNote}`}</Text>
+          ) : null}
+          {request.proofImageOriginalFileName ? (
+            <Text style={styles.requestMeta}>{`Fichier original: ${request.proofImageOriginalFileName}`}</Text>
+          ) : null}
+          {request.proofImageSizeBytes ? (
+            <Text style={styles.requestMeta}>{`Taille: ${Math.round(request.proofImageSizeBytes / 1024)} Ko`}</Text>
+          ) : null}
+          <ProofImagePreview
+            fileName={request.proofImageFileName}
+            storagePath={request.proofImageStoragePath}
+          />
+          {canReviewManualProof && request.manualProofStatus !== 'confirmed' ? (
+            <View style={styles.proofActions}>
+              <PrimaryButton
+                label="Confirmer reçu"
+                loading={isReviewing}
+                onPress={() => onReviewProof(request.id, 'confirmed')}
+              />
+              <PrimaryButton
+                label="Rejeter preuve"
+                loading={isReviewing}
+                onPress={() => onReviewProof(request.id, 'rejected')}
+                variant="secondary"
+              />
+              <PrimaryButton
+                label="Contester / escalader"
+                loading={isReviewing}
+                onPress={() => onReviewProof(request.id, 'disputed')}
+                variant="secondary"
+              />
+            </View>
+          ) : null}
+        </View>
+      ) : null}
       {request.resolutionNote ? (
         <Text style={styles.requestMeta}>{`Suivi agence: ${request.resolutionNote}`}</Text>
       ) : null}
@@ -123,8 +208,11 @@ export default function SupportScreen() {
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [reviewingRequestId, setReviewingRequestId] = useState<string | null>(null);
 
   const isRecoveryMode = !isAuthenticated || params.mode === 'recovery';
+  const canReviewManualProof =
+    session?.role === 'owner' || session?.role === 'agency_admin';
 
   useEffect(() => {
     const requestedCategory =
@@ -246,6 +334,54 @@ export default function SupportScreen() {
       });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleReviewManualProof = async (
+    requestId: string,
+    decision: 'confirmed' | 'disputed' | 'rejected',
+  ) => {
+    setReviewingRequestId(requestId);
+    setFeedback(null);
+
+    try {
+      const updated = await reviewManualPaymentProofViaBackend({
+        decision,
+        note:
+          decision === 'confirmed'
+            ? 'Paiement confirmé après revue de la preuve.'
+            : decision === 'rejected'
+              ? 'Preuve rejetée depuis l’espace propriétaire.'
+              : 'Preuve contestée depuis l’espace propriétaire.',
+        requestId,
+      });
+
+      setSupportRequests((currentRequests) =>
+        currentRequests.map((request) => (request.id === requestId ? updated : request)),
+      );
+      setFeedback({
+        description:
+          decision === 'confirmed'
+            ? 'Le paiement manuel est confirmé et le reçu a été généré par le backend.'
+            : decision === 'rejected'
+              ? 'La preuve est rejetée. Aucun reçu n’a été généré.'
+              : 'La preuve est contestée. Aucun reçu n’a été généré.',
+        title:
+          decision === 'confirmed'
+            ? 'Paiement confirmé'
+            : decision === 'rejected'
+              ? 'Preuve rejetée'
+              : 'Preuve contestée',
+        tone: decision === 'confirmed' ? 'success' : 'info',
+      });
+    } catch (error) {
+      setFeedback({
+        description: mapBackendErrorToMessage(error, "La revue de preuve n’a pas pu être appliquée."),
+        title: 'Revue impossible',
+        tone: 'error',
+      });
+    } finally {
+      setReviewingRequestId(null);
     }
   };
 
@@ -437,7 +573,16 @@ export default function SupportScreen() {
             </AuthCard>
           </View>
         }
-        renderItem={({ item }) => <RequestRow request={item} />}
+        renderItem={({ item }) => (
+          <RequestRow
+            canReviewManualProof={canReviewManualProof}
+            isReviewing={reviewingRequestId === item.id}
+            onReviewProof={(requestId, decision) => {
+              void handleReviewManualProof(requestId, decision);
+            }}
+            request={item}
+          />
+        )}
         showsVerticalScrollIndicator={false}
       />
     </SafeAreaView>
@@ -496,6 +641,26 @@ const styles = StyleSheet.create({
   requestBody: {
     color: colors.text,
     ...typography.body,
+  },
+  proofBox: {
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: spacing.xs,
+    padding: spacing.sm,
+  },
+  proofTitle: {
+    color: colors.text,
+    ...typography.bodyStrong,
+  },
+  riskBox: {
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radius.md,
+    gap: spacing.xs,
+    padding: spacing.sm,
+  },
+  proofActions: {
+    gap: spacing.sm,
   },
   statusBadge: {
     borderRadius: radius.pill,

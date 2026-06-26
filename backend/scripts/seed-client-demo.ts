@@ -21,6 +21,7 @@ const ownerAccessCode = 'OWNR-DEMO-2026-0001';
 const ownerAccessInviteId = hashInviteCode(ownerAccessCode);
 const tenantInviteCode = 'TENT-DEMO-2026-0001';
 const tenantInviteId = hashInviteCode(tenantInviteCode);
+const activeTermsVersion = '2026-04-23.1';
 
 const demoUsers = {
   agency: {
@@ -157,14 +158,25 @@ function calculateZeroRentLedger(grossAmount: number) {
   };
 }
 
+function buildDemoAtouPayReference(monthKey: string) {
+  const monthCodes = ['JAN', 'FEV', 'MAR', 'AVR', 'MAI', 'JUN', 'JUL', 'AOU', 'SEP', 'OCT', 'NOV', 'DEC'];
+  const match = /^(\d{4})-(\d{2})$/.exec(monthKey);
+  const monthIndex = match ? Number.parseInt(match[2]!, 10) - 1 : -1;
+  const periodCode = match
+    ? `${monthCodes[monthIndex] ?? 'PER'}${match[1]!.slice(2)}`
+    : 'PERIOD';
+
+  return `ATP-UNITCL-${periodCode}-DEM`;
+}
+
 async function ensureTermsAcceptance(uid: string, now: string) {
   const db = getFirestore();
   const termsRef = db.collection('legalTerms').doc('terms-of-use');
   const termsSnapshot = await termsRef.get();
   let termsVersion = termsSnapshot.get('version') as string | undefined;
 
-  if (!termsSnapshot.exists || !termsVersion) {
-    termsVersion = '2026-04-demo-terms';
+  if (!termsSnapshot.exists || !termsVersion || termsVersion === '2026-04-demo-terms') {
+    termsVersion = activeTermsVersion;
     await termsRef.set(
       {
         locale: 'fr',
@@ -217,6 +229,7 @@ async function main() {
     upsertAuthUser({ ...demoUsers.newTenant, ...passwordInput }),
   ]);
   const paymentId = `rent-${tenantAuth.uid}-${monthKey}`;
+  const atouPayReference = buildDemoAtouPayReference(monthKey);
 
   const receiptSnapshot = await db.collection('receipts').where('paymentId', '==', paymentId).get();
   const newTenantPayments = await db.collection('rentPayments').where('tenantId', '==', newTenantAuth.uid).get();
@@ -294,6 +307,14 @@ async function main() {
 
   batch.set(db.collection('owners').doc(ownerAuth.uid), {
     agencyId,
+    bankilyIntegrationMode: 'qr_or_code_manual',
+    bankilyMerchantCode: 'ATOU-SALEM-DEMO',
+    bankilyPaymentMethodReviewedAt: nowIso,
+    bankilyPaymentMethodReviewedByUserId: agencyAuth.uid,
+    bankilyPaymentMethodReviewNote: 'Verified demo Bankily details for client QA.',
+    bankilyPaymentMethodStatus: 'verified',
+    bankilyPhoneNumber: '+222 22 17 30 44',
+    bankilyQrImageUrl: null,
     createdAt: nowIso,
     displayName: demoUsers.owner.displayName,
     updatedAt: nowIso,
@@ -397,6 +418,7 @@ async function main() {
   batch.set(db.collection('rentPayments').doc(paymentId), {
     agencyFeeAmount: rentLedger.agencyFeeAmount,
     agencyId,
+    atouPayReference,
     commissionRate: rentLedger.commissionRate,
     createdAt: nowIso,
     dueDate,
