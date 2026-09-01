@@ -4,6 +4,28 @@
 
 ATouPay is an Expo Router mobile MVP focused only on payment-first rental workflows for tenants and owners.
 
+## App preview
+
+ATouPay is a trilingual (French / Arabic / English) mobile app with three role-based experiences — tenant, owner, and agency admin.
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/public-welcome.png" alt="Public welcome and role selection" width="230"/><br/><sub>Public welcome &amp; role selection</sub></td>
+    <td><img src="docs/screenshots/language-selector.png" alt="French / Arabic / English language selector" width="230"/><br/><sub>FR / AR / EN language selector</sub></td>
+    <td><img src="docs/screenshots/tenant-home.png" alt="Tenant home" width="230"/><br/><sub>Tenant home</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/tenant-pay-rent.png" alt="Tenant rent payment" width="230"/><br/><sub>Tenant rent payment</sub></td>
+    <td><img src="docs/screenshots/tenant-receipt.png" alt="Receipt with QR verification" width="230"/><br/><sub>Receipt with QR verification</sub></td>
+    <td><img src="docs/screenshots/owner-dashboard.png" alt="Owner dashboard" width="230"/><br/><sub>Owner dashboard</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/owner-invite.png" alt="Tenant invite generation" width="230"/><br/><sub>Tenant invite generation</sub></td>
+    <td><img src="docs/screenshots/agency-dashboard.png" alt="Agency admin dashboard" width="230"/><br/><sub>Agency admin dashboard</sub></td>
+    <td><img src="docs/screenshots/agency-support.png" alt="Agency support queue" width="230"/><br/><sub>Agency support queue</sub></td>
+  </tr>
+</table>
+
 ## Recruiter snapshot
 - Mobile product with a real business workflow, not a UI demo
 - Expo Router React Native front end paired with a Fastify backend and Firebase auth/data
